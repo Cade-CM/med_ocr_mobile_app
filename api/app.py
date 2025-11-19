@@ -341,18 +341,25 @@ def process_ocr_detailed():
     7. Cache LLM availability check on startup
     """
     start_time = time.time()
+    print("=" * 60)
+    print(f"OCR REQUEST RECEIVED at {datetime.now()}")
+    print("=" * 60)
     
     try:
         data = request.json
+        print(f"Request data received, has image: {'image' in data if data else False}")
         
         if not data or 'image' not in data:
+            print("ERROR: No image data in request!")
             return jsonify({
                 'success': False,
                 'error': 'No image data provided'
             }), 400
         
         # Decode base64 image
+        print(f"Decoding base64 image (length: {len(data['image'])} chars)")
         image_data = base64.b64decode(data['image'])
+        print(f"Image data decoded: {len(image_data)} bytes")
         image = Image.open(io.BytesIO(image_data))
         
         log(f"Processing image: {image.size}, mode: {image.mode}")
@@ -488,6 +495,11 @@ def process_ocr_detailed():
         })
         
     except Exception as e:
+        print("=" * 60)
+        print(f"OCR ERROR: {type(e).__name__}: {str(e)}")
+        print("=" * 60)
+        import traceback
+        traceback.print_exc()
         return jsonify({
             'success': False,
             'error': str(e)

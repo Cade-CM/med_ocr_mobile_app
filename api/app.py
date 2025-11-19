@@ -361,17 +361,21 @@ def process_ocr_detailed():
         image_data = base64.b64decode(data['image'])
         print(f"Image data decoded: {len(image_data)} bytes")
         image = Image.open(io.BytesIO(image_data))
+        print(f"PIL Image opened: {image.size}, mode: {image.mode}")
         
         log(f"Processing image: {image.size}, mode: {image.mode}")
         
         # Convert PIL to OpenCV format
+        print("Converting PIL to OpenCV format...")
         img_array = np.array(image)
         if len(img_array.shape) == 3:
             img_cv = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
         else:
             img_cv = img_array
+        print(f"OpenCV image shape: {img_cv.shape}")
         
         # Test all 4 rotations in parallel (camera orientation varies)
+        print("Testing rotations...")
         rotations = [
             (img_cv, 0, "0°"),
             (cv2.rotate(img_cv, cv2.ROTATE_90_COUNTERCLOCKWISE), 90, "90° CCW"),
@@ -385,9 +389,11 @@ def process_ocr_detailed():
         best_rotation_name = "0°"
         
         # OPTIMIZATION: Process rotations in parallel
+        print("Starting parallel rotation processing...")
         rotation_futures = {executor.submit(process_rotation, img, angle, name): (img, name) 
                            for img, angle, name in rotations}
         
+        print(f"Created {len(rotation_futures)} rotation tasks")
         for future in as_completed(rotation_futures):
             conf, rot_img, name = future.result()
             if conf > best_rotation_conf:

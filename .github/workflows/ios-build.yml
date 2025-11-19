@@ -1,0 +1,59 @@
+name: iOS Build
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:  # Allows manual trigger from GitHub UI
+
+jobs:
+  build-ios:
+    name: Build iOS App
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Install CocoaPods dependencies
+        run: |
+          cd ios
+          pod install
+          cd ..
+      
+      - name: Build iOS app
+        run: |
+          cd ios
+          xcodebuild \
+            -workspace MedAdherenceApp.xcworkspace \
+            -scheme MedAdherenceApp \
+            -configuration Release \
+            -sdk iphoneos \
+            -archivePath $PWD/build/MedAdherenceApp.xcarchive \
+            archive \
+            CODE_SIGNING_ALLOWED=NO
+      
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        if: success()
+        with:
+          name: ios-build
+          path: ios/build/
+          retention-days: 7
+      
+      - name: Build summary
+        if: success()
+        run: |
+          echo "✅ iOS build completed successfully!"
+          echo "📦 Build artifacts are available in the Actions tab"
+          echo "⬇️ Download the build from the 'Artifacts' section"

@@ -1,0 +1,52 @@
+name: Android Build
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:  # Allows manual trigger from GitHub UI
+
+jobs:
+  build-android:
+    name: Build Android App
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '11'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Build Android APK
+        run: |
+          cd android
+          ./gradlew assembleRelease --no-daemon
+      
+      - name: Upload APK
+        uses: actions/upload-artifact@v3
+        if: success()
+        with:
+          name: android-apk
+          path: android/app/build/outputs/apk/release/app-release.apk
+          retention-days: 7
+      
+      - name: Build summary
+        if: success()
+        run: |
+          echo "✅ Android build completed successfully!"
+          echo "📦 APK is available in the Actions tab"
+          echo "⬇️ Download from the 'Artifacts' section"

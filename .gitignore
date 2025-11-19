@@ -1,0 +1,74 @@
+.DS_Store
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OSX
+.DS_Store
+
+# Android/IntelliJ
+build/
+.idea
+.gradle
+local.properties
+*.iml
+*.hprof
+.cxx/
+
+# iOS/Xcode
+ios/Pods/
+ios/build/
+ios/*.xcworkspace
+!ios/*.xcworkspace/contents.xcworkspacedata
+ios/*.xcuserstate
+ios/DerivedData/
+*.xcuserstate
+ios/.xcode.env.local
+
+# Android
+android/.gradle/
+android/app/build/
+android/build/
+android/app/release/
+android/app/debug/
+
+# Bundle
+*.jsbundle
+
+# CocoaPods
+/ios/Pods/
+
+# Fastlane
+ios/fastlane/report.xml
+ios/fastlane/Preview.html
+ios/fastlane/screenshots
+ios/fastlane/test_output
+
+# Metro
+.metro-health-check*
+
+# React Native
+*.log*
+temp/
+tmp/
+
+# Testing
+coverage/
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Misc
+*.pem
+*.p12
+*.mobileprovision

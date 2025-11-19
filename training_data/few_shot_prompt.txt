@@ -1,0 +1,42 @@
+Here are example prescription labels:
+
+Example 1:
+Patient: CADE MONTES
+Drug: HYDROXYZINE HCL
+Strength: 10MG
+Dosage: 1 TABLET
+Frequency: EVERY 6 TO 8 HOURS
+Duration: AS NEEDED
+
+Example 2:
+Patient: KYAH MONTES
+Drug: CLINDAMYCIN
+Strength: 300MG
+Dosage: 1 CAPSULE
+Frequency: THREE TIMES DAILY
+Duration: 10 DAYS
+
+Example 3:
+Patient: KYAH MONTES
+Drug: SULFAMETH/TRIMETHOPRIM
+Strength: None
+Dosage: 1 TABLET
+Frequency: TWICE A DAY
+Duration: 10 DAYS
+
+Example 4:
+Patient: CAMERON MONTES
+Drug: HYDROXYZINE HCL
+Strength: 10MG
+Dosage: 1 TABLET
+Frequency: EVERY 12 HOURS
+Duration: AS NEEDED
+
+Example 5:
+Patient: KALI MONTES
+Drug: CEFDINIR
+Strength: 300MG
+Dosage: 1 CAPSULE
+Frequency: TWICE DAILY
+Duration: None
+

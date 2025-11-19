@@ -39,3 +39,21 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+*.egg-info/
+venv/
+env/
+.venv
+
+# Backend data files
+api/data/*.json
+
+# Logs
+*.log

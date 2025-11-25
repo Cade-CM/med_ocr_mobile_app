@@ -49,12 +49,19 @@ const ProfileSetupScreen: React.FC<Props> = ({ navigation, route }) => {
       const trimmedLast = lastName.trim();
       const trimmedNickname = nickname.trim();
       
-      // Save profile information
+      // Save profile information for current user
       await AsyncStorage.setItem('userFirstName', trimmedFirst);
       await AsyncStorage.setItem('userLastName', trimmedLast);
       await AsyncStorage.setItem('userNickname', trimmedNickname);
       await AsyncStorage.setItem('userAge', age);
       await AsyncStorage.setItem('userGender', gender);
+      
+      // Also save with email prefix for profile switching
+      await AsyncStorage.setItem(`userFirstName_${email}`, trimmedFirst);
+      await AsyncStorage.setItem(`userLastName_${email}`, trimmedLast);
+      await AsyncStorage.setItem(`userNickname_${email}`, trimmedNickname);
+      await AsyncStorage.setItem(`userAge_${email}`, age);
+      await AsyncStorage.setItem(`userGender_${email}`, gender);
 
       // Add patient name to local database (for OCR validation)
       await StorageService.savePatientName(trimmedFirst.toUpperCase(), trimmedLast.toUpperCase());

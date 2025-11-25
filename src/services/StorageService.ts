@@ -10,7 +10,28 @@ export class StorageService {
     ADHERENCE_RECORDS: '@adherence_records',
     USER_PREFERENCES: '@user_preferences',
     PATIENT_NAMES: '@patient_names',
+    CURRENT_USER: '@current_user_id',
   };
+
+  /**
+   * Get the current logged-in user's ID (email)
+   */
+  private static async getCurrentUserId(): Promise<string | null> {
+    try {
+      return await AsyncStorage.getItem('userEmail');
+    } catch (error) {
+      console.error('Error getting current user ID:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Get user-specific storage key
+   */
+  private static async getUserKey(baseKey: string): Promise<string> {
+    const userId = await this.getCurrentUserId();
+    return userId ? `${baseKey}_${userId}` : baseKey;
+  }
 
   /**
    * Save a medication
@@ -26,8 +47,9 @@ export class StorageService {
         medications.push(medication);
       }
       
+      const key = await this.getUserKey(this.KEYS.MEDICATIONS);
       await AsyncStorage.setItem(
-        this.KEYS.MEDICATIONS,
+        key,
         JSON.stringify(medications),
       );
     } catch (error) {
@@ -46,8 +68,9 @@ export class StorageService {
       
       if (index >= 0) {
         medications[index] = medication;
+        const key = await this.getUserKey(this.KEYS.MEDICATIONS);
         await AsyncStorage.setItem(
-          this.KEYS.MEDICATIONS,
+          key,
           JSON.stringify(medications),
         );
       } else {
@@ -64,7 +87,8 @@ export class StorageService {
    */
   static async getMedications(): Promise<Medication[]> {
     try {
-      const data = await AsyncStorage.getItem(this.KEYS.MEDICATIONS);
+      const key = await this.getUserKey(this.KEYS.MEDICATIONS);
+      const data = await AsyncStorage.getItem(key);
       if (!data) return [];
       
       const medications = JSON.parse(data);
@@ -88,8 +112,9 @@ export class StorageService {
     try {
       const medications = await this.getMedications();
       const filtered = medications.filter(m => m.id !== medicationId);
+      const key = await this.getUserKey(this.KEYS.MEDICATIONS);
       await AsyncStorage.setItem(
-        this.KEYS.MEDICATIONS,
+        key,
         JSON.stringify(filtered),
       );
     } catch (error) {
@@ -112,8 +137,9 @@ export class StorageService {
         records.push(record);
       }
       
+      const key = await this.getUserKey(this.KEYS.ADHERENCE_RECORDS);
       await AsyncStorage.setItem(
-        this.KEYS.ADHERENCE_RECORDS,
+        key,
         JSON.stringify(records),
       );
     } catch (error) {
@@ -127,7 +153,8 @@ export class StorageService {
    */
   static async getAdherenceRecords(): Promise<AdherenceRecord[]> {
     try {
-      const data = await AsyncStorage.getItem(this.KEYS.ADHERENCE_RECORDS);
+      const key = await this.getUserKey(this.KEYS.ADHERENCE_RECORDS);
+      const data = await AsyncStorage.getItem(key);
       if (!data) return [];
       
       const records = JSON.parse(data);
@@ -157,8 +184,9 @@ export class StorageService {
    */
   static async saveUserPreferences(preferences: UserPreferences): Promise<void> {
     try {
+      const key = await this.getUserKey(this.KEYS.USER_PREFERENCES);
       await AsyncStorage.setItem(
-        this.KEYS.USER_PREFERENCES,
+        key,
         JSON.stringify(preferences),
       );
     } catch (error) {
@@ -172,7 +200,8 @@ export class StorageService {
    */
   static async getUserPreferences(): Promise<UserPreferences | null> {
     try {
-      const data = await AsyncStorage.getItem(this.KEYS.USER_PREFERENCES);
+      const key = await this.getUserKey(this.KEYS.USER_PREFERENCES);
+      const data = await AsyncStorage.getItem(key);
       return data ? JSON.parse(data) : null;
     } catch (error) {
       console.error('Error getting user preferences:', error);
@@ -237,15 +266,137 @@ export class StorageService {
    */
   static async clearAllData(): Promise<void> {
     try {
-      await AsyncStorage.multiRemove([
-        this.KEYS.MEDICATIONS,
-        this.KEYS.ADHERENCE_RECORDS,
-        this.KEYS.USER_PREFERENCES,
-        this.KEYS.PATIENT_NAMES,
-      ]);
+      const userId = await this.getCurrentUserId();
+      const userKeys = [
+        await this.getUserKey(this.KEYS.MEDICATIONS),
+        await this.getUserKey(this.KEYS.ADHERENCE_RECORDS),
+        await this.getUserKey(this.KEYS.USER_PREFERENCES),
+      ];
+      await AsyncStorage.multiRemove([...userKeys, this.KEYS.PATIENT_NAMES]);
     } catch (error) {
       console.error('Error clearing data:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Get all user profiles in the system
+   */
+  static async getAllUserProfiles(): Promise<Array<{
+    email: string;
+    firstName: string;
+    lastName: string;
+    nickname?: string;
+    age?: string;
+    gender?: string;
+  }>> {
+    try {
+      const allKeys = await AsyncStorage.getAllKeys();
+      const userEmails = new Set<string>();
+      
+      // Find all unique user emails from medication keys
+      allKeys.forEach(key => {
+        if (key.startsWith('@medications_')) {
+          const email = key.replace('@medications_', '');
+          userEmails.add(email);
+        }
+      });
+
+      const profiles = [];
+      for (const email of userEmails) {
+        // Get user info from AsyncStorage
+        const firstName = await AsyncStorage.getItem(`userFirstName_${email}`) || 
+                         await AsyncStorage.getItem('userFirstName');
+        const lastName = await AsyncStorage.getItem(`userLastName_${email}`) || 
+                        await AsyncStorage.getItem('userLastName');
+        const nickname = await AsyncStorage.getItem(`userNickname_${email}`);
+        const age = await AsyncStorage.getItem(`userAge_${email}`);
+        const gender = await AsyncStorage.getItem(`userGender_${email}`);
+        
+        if (firstName && lastName) {
+          profiles.push({
+            email,
+            firstName,
+            lastName,
+            nickname: nickname || undefined,
+            age: age || undefined,
+            gender: gender || undefined,
+          });
+        }
+      }
+      
+      return profiles;
+    } catch (error) {
+      console.error('Error getting all user profiles:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Switch to a different user profile
+   */
+  static async switchUserProfile(email: string): Promise<void> {
+    try {
+      // Load the user's info
+      const firstName = await AsyncStorage.getItem(`userFirstName_${email}`);
+      const lastName = await AsyncStorage.getItem(`userLastName_${email}`);
+      const nickname = await AsyncStorage.getItem(`userNickname_${email}`);
+      const age = await AsyncStorage.getItem(`userAge_${email}`);
+      const gender = await AsyncStorage.getItem(`userGender_${email}`);
+      
+      if (!firstName || !lastName) {
+        throw new Error('User profile not found');
+      }
+      
+      // Set as current user
+      await AsyncStorage.setItem('userEmail', email);
+      await AsyncStorage.setItem('userFirstName', firstName);
+      await AsyncStorage.setItem('userLastName', lastName);
+      if (nickname) await AsyncStorage.setItem('userNickname', nickname);
+      if (age) await AsyncStorage.setItem('userAge', age);
+      if (gender) await AsyncStorage.setItem('userGender', gender);
+      
+      console.log(`Switched to user profile: ${firstName} ${lastName} (${email})`);
+    } catch (error) {
+      console.error('Error switching user profile:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get current user profile
+   */
+  static async getCurrentUserProfile(): Promise<{
+    email: string;
+    firstName: string;
+    lastName: string;
+    nickname?: string;
+    age?: string;
+    gender?: string;
+  } | null> {
+    try {
+      const email = await AsyncStorage.getItem('userEmail');
+      const firstName = await AsyncStorage.getItem('userFirstName');
+      const lastName = await AsyncStorage.getItem('userLastName');
+      const nickname = await AsyncStorage.getItem('userNickname');
+      const age = await AsyncStorage.getItem('userAge');
+      const gender = await AsyncStorage.getItem('userGender');
+      
+      if (!email || !firstName || !lastName) {
+        return null;
+      }
+      
+      return {
+        email,
+        firstName,
+        lastName,
+        nickname: nickname || undefined,
+        age: age || undefined,
+        gender: gender || undefined,
+      };
+    } catch (error) {
+      console.error('Error getting current user profile:', error);
+      return null;
     }
   }
 

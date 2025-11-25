@@ -28,10 +28,18 @@ const SettingsScreen: React.FC = () => {
   const [hasChanges, setHasChanges] = useState(false);
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
+  const [allProfiles, setAllProfiles] = useState<Array<{
+    email: string;
+    firstName: string;
+    lastName: string;
+    nickname?: string;
+  }>>([]);
+  const [currentEmail, setCurrentEmail] = useState('');
 
   useEffect(() => {
     loadPreferences();
     loadUserData();
+    loadAllProfiles();
   }, []);
 
   const loadPreferences = async () => {
@@ -44,8 +52,40 @@ const SettingsScreen: React.FC = () => {
   const loadUserData = async () => {
     const savedFirstName = await AsyncStorage.getItem('userFirstName');
     const savedLastName = await AsyncStorage.getItem('userLastName');
+    const savedEmail = await AsyncStorage.getItem('userEmail');
     if (savedFirstName) setFirstName(savedFirstName);
     if (savedLastName) setLastName(savedLastName);
+    if (savedEmail) setCurrentEmail(savedEmail);
+  };
+
+  const loadAllProfiles = async () => {
+    const profiles = await StorageService.getAllUserProfiles();
+    setAllProfiles(profiles);
+  };
+
+  const handleSwitchProfile = (email: string) => {
+    Alert.alert(
+      'Switch Profile',
+      `Switch to ${allProfiles.find(p => p.email === email)?.firstName}'s profile?`,
+      [
+        {text: 'Cancel', style: 'cancel'},
+        {
+          text: 'Switch',
+          onPress: async () => {
+            try {
+              await StorageService.switchUserProfile(email);
+              // Reload the app to show new profile's data
+              navigation.getParent()?.reset({
+                index: 0,
+                routes: [{name: 'Home'}],
+              });
+            } catch (error) {
+              Alert.alert('Error', 'Failed to switch profile. Please try again.');
+            }
+          },
+        },
+      ],
+    );
   };
 
   const handleSave = async () => {
@@ -157,6 +197,63 @@ const SettingsScreen: React.FC = () => {
             <Text style={styles.signOutButtonText}>Sign Out</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Profile Switcher */}
+        {allProfiles.length > 1 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Switch Profile</Text>
+            <Text style={styles.sectionSubtitle}>
+              Medications are stored separately for each profile
+            </Text>
+            
+            {allProfiles.map((profile) => (
+              <TouchableOpacity
+                key={profile.email}
+                style={[
+                  styles.profileRow,
+                  profile.email === currentEmail && styles.currentProfileRow,
+                ]}
+                onPress={() => handleSwitchProfile(profile.email)}
+                disabled={profile.email === currentEmail}
+              >
+                <View style={styles.profileIcon}>
+                  <Icon 
+                    name="person" 
+                    size={24} 
+                    color={profile.email === currentEmail ? 'white' : '#007AFF'} 
+                  />
+                </View>
+                <View style={styles.profileInfo}>
+                  <Text style={[
+                    styles.profileName,
+                    profile.email === currentEmail && styles.currentProfileText,
+                  ]}>
+                    {profile.firstName} {profile.lastName}
+                  </Text>
+                  {profile.nickname && (
+                    <Text style={[
+                      styles.profileNickname,
+                      profile.email === currentEmail && styles.currentProfileSubtext,
+                    ]}>
+                      "{profile.nickname}"
+                    </Text>
+                  )}
+                  <Text style={[
+                    styles.profileEmail,
+                    profile.email === currentEmail && styles.currentProfileSubtext,
+                  ]}>
+                    {profile.email}
+                  </Text>
+                </View>
+                {profile.email === currentEmail && (
+                  <View style={styles.currentBadge}>
+                    <Text style={styles.currentBadgeText}>Current</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
 
         {/* Schedule Preferences */}
         <View style={styles.section}>
@@ -340,6 +437,73 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#333',
     marginBottom: 15,
+  },
+  sectionSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 15,
+    fontStyle: 'italic',
+  },
+  profileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'white',
+    padding: 15,
+    borderRadius: 10,
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 1},
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  currentProfileRow: {
+    backgroundColor: '#007AFF',
+  },
+  profileIcon: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#E8F4FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 15,
+  },
+  profileInfo: {
+    flex: 1,
+  },
+  profileName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 2,
+  },
+  profileNickname: {
+    fontSize: 14,
+    color: '#666',
+    fontStyle: 'italic',
+    marginBottom: 2,
+  },
+  profileEmail: {
+    fontSize: 12,
+    color: '#999',
+  },
+  currentProfileText: {
+    color: 'white',
+  },
+  currentProfileSubtext: {
+    color: 'rgba(255, 255, 255, 0.8)',
+  },
+  currentBadge: {
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  currentBadgeText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
   },
   settingRow: {
     flexDirection: 'row',

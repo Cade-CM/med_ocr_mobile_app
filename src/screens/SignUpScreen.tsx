@@ -16,7 +16,6 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '@types';
 import { MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { StorageService } from '@services/StorageService';
 import Constants from 'expo-constants';
 import { useEffect } from 'react';
 
@@ -31,12 +30,14 @@ try {
   console.log('Google Sign-In not available in Expo Go');
 }
 
-type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
+type Props = NativeStackScreenProps<RootStackParamList, 'SignUp'>;
 
-const LoginScreen: React.FC<Props> = ({ navigation }) => {
+const SignUpScreen: React.FC<Props> = ({ navigation }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
@@ -54,10 +55,10 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
     return emailRegex.test(email);
   };
 
-  const handleLogin = async () => {
+  const handleSignUp = async () => {
     // Validate inputs
-    if (!email.trim() || !password.trim()) {
-      Alert.alert('Error', 'Please enter both email and password');
+    if (!email.trim() || !password.trim() || !confirmPassword.trim()) {
+      Alert.alert('Error', 'Please fill in all fields');
       return;
     }
 
@@ -71,63 +72,36 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
       return;
     }
 
+    if (password !== confirmPassword) {
+      Alert.alert('Error', 'Passwords do not match');
+      return;
+    }
+
     setIsLoading(true);
 
     try {
       // Simulate API call (replace with actual authentication)
       await new Promise(resolve => setTimeout(resolve, 1000));
 
-      // TODO: Replace with actual authentication logic
-      // For now, we'll use a simple mock authentication
-      const savedEmail = await AsyncStorage.getItem('userEmail');
-      const savedPassword = await AsyncStorage.getItem('userPassword');
+      const trimmedEmail = email.trim().toLowerCase();
+      
+      // TODO: Replace with actual sign-up API call
+      // For now, save to AsyncStorage
+      await AsyncStorage.setItem('userEmail', trimmedEmail);
+      await AsyncStorage.setItem('userPassword', password);
+      await AsyncStorage.setItem('isLoggedIn', 'true');
+      await AsyncStorage.setItem('authMethod', 'email');
 
-      if (savedEmail === email.trim().toLowerCase() && savedPassword === password) {
-        // Load user data
-        const savedFirstName = await AsyncStorage.getItem('userFirstName');
-        const savedLastName = await AsyncStorage.getItem('userLastName');
-
-        await AsyncStorage.setItem('isLoggedIn', 'true');
-        
-        console.log('Login successful');
-        navigation.replace('Home');
-      } else {
-        Alert.alert('Error', 'Invalid email or password');
-      }
+      console.log('Sign up successful, navigating to profile setup');
+      
+      // Navigate to profile setup
+      navigation.replace('ProfileSetup', { email: trimmedEmail, authMethod: 'email' });
     } catch (error) {
-      console.error('Error during login:', error);
-      Alert.alert('Error', 'Failed to log in. Please try again.');
+      console.error('Error during sign up:', error);
+      Alert.alert('Error', 'Failed to create account. Please try again.');
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleForgotPassword = () => {
-    Alert.alert(
-      'Forgot Password',
-      'Please enter your email address to receive a password reset link.',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Send',
-          onPress: () => {
-            if (!email.trim()) {
-              Alert.alert('Error', 'Please enter your email address first');
-              return;
-            }
-            if (!validateEmail(email)) {
-              Alert.alert('Error', 'Please enter a valid email address');
-              return;
-            }
-            // TODO: Implement password reset logic
-            Alert.alert('Success', 'Password reset link sent to your email');
-          },
-        },
-      ],
-    );
   };
 
   const handleGoogleSignIn = async () => {
@@ -155,18 +129,10 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
       await AsyncStorage.setItem('isLoggedIn', 'true');
       await AsyncStorage.setItem('authMethod', 'google');
 
-      // Check if user has completed profile setup
-      const firstName = await AsyncStorage.getItem('userFirstName');
+      console.log('Google Sign-In successful, navigating to profile setup');
       
-      if (!firstName) {
-        // New user, navigate to profile setup
-        console.log('New Google user, navigating to profile setup');
-        navigation.replace('ProfileSetup', { email: user.email, authMethod: 'google' });
-      } else {
-        // Existing user, go to home
-        console.log('Existing Google user, navigating to home');
-        navigation.replace('Home');
-      }
+      // Navigate to profile setup
+      navigation.replace('ProfileSetup', { email: user.email, authMethod: 'google' });
     } catch (error: any) {
       console.error('Google Sign-In error:', error);
       
@@ -219,10 +185,10 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
               style={styles.logoImage}
             />
             <Text style={styles.title}>MedBuddy</Text>
-            <Text style={styles.subtitle}>Welcome back</Text>
+            <Text style={styles.subtitle}>Create your account</Text>
           </View>
 
-          {/* Login Form */}
+          {/* Sign Up Form */}
           <View style={styles.formContainer}>
             <Text style={styles.label}>Email</Text>
             <TextInput
@@ -247,8 +213,7 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
                 autoCorrect={false}
-                returnKeyType="done"
-                onSubmitEditing={handleLogin}
+                returnKeyType="next"
                 editable={!isLoading}
               />
               <TouchableOpacity
@@ -263,30 +228,48 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
               </TouchableOpacity>
             </View>
 
-            <TouchableOpacity
-              style={styles.forgotPasswordButton}
-              onPress={handleForgotPassword}
-              disabled={isLoading}
-            >
-              <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
-            </TouchableOpacity>
+            <Text style={styles.label}>Confirm Password</Text>
+            <View style={styles.passwordContainer}>
+              <TextInput
+                style={styles.passwordInput}
+                placeholder="Confirm your password"
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                secureTextEntry={!showConfirmPassword}
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="done"
+                onSubmitEditing={handleSignUp}
+                editable={!isLoading}
+              />
+              <TouchableOpacity
+                style={styles.eyeIcon}
+                onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+              >
+                <MaterialIcons
+                  name={showConfirmPassword ? 'visibility' : 'visibility-off'}
+                  size={24}
+                  color="#666"
+                />
+              </TouchableOpacity>
+            </View>
 
             <TouchableOpacity
-              style={[styles.loginButton, isLoading && styles.disabledButton]}
-              onPress={handleLogin}
+              style={[styles.signUpButton, isLoading && styles.disabledButton]}
+              onPress={handleSignUp}
               disabled={isLoading}
             >
               {isLoading ? (
                 <ActivityIndicator color="white" />
               ) : (
-                <Text style={styles.loginButtonText}>Sign In</Text>
+                <Text style={styles.signUpButtonText}>Sign Up</Text>
               )}
             </TouchableOpacity>
 
             {/* Divider */}
             <View style={styles.dividerContainer}>
               <View style={styles.divider} />
-              <Text style={styles.dividerText}>Or Sign In With</Text>
+              <Text style={styles.dividerText}>Or Sign Up With</Text>
               <View style={styles.divider} />
             </View>
 
@@ -313,14 +296,14 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
               </TouchableOpacity>
             </View>
 
-            {/* Toggle to Sign Up */}
+            {/* Toggle to Sign In */}
             <View style={styles.toggleContainer}>
-              <Text style={styles.toggleText}>Don't have an account?</Text>
+              <Text style={styles.toggleText}>Already have an account?</Text>
               <TouchableOpacity
-                onPress={() => navigation.navigate('SignUp')}
+                onPress={() => navigation.navigate('Login')}
                 disabled={isLoading}
               >
-                <Text style={styles.toggleLink}>Sign Up</Text>
+                <Text style={styles.toggleLink}>Sign In</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -415,16 +398,7 @@ const styles = StyleSheet.create({
     padding: 10,
     paddingRight: 15,
   },
-  forgotPasswordButton: {
-    alignSelf: 'flex-end',
-    marginBottom: 15,
-  },
-  forgotPasswordText: {
-    color: '#007AFF',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  loginButton: {
+  signUpButton: {
     backgroundColor: '#007AFF',
     borderRadius: 10,
     padding: 16,
@@ -436,7 +410,7 @@ const styles = StyleSheet.create({
   disabledButton: {
     opacity: 0.6,
   },
-  loginButtonText: {
+  signUpButtonText: {
     color: 'white',
     fontSize: 18,
     fontWeight: '600',
@@ -512,4 +486,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default LoginScreen;
+export default SignUpScreen;

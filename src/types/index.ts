@@ -108,6 +108,11 @@ export interface PatientStats {
  */
 export type RootStackParamList = {
   Login: undefined;
+  SignUp: undefined;
+  ProfileSetup: {
+    email: string;
+    authMethod: 'email' | 'google' | 'apple';
+  };
   Home: undefined;
   HomeTab: undefined;
   DashboardTab: undefined;
@@ -116,6 +121,7 @@ export type RootStackParamList = {
   MedicationReview: {
     imageUri: string;
     rawOcrText?: string;
+    parsedData?: ParsedMedicationData;
     editMode?: boolean;
     existingMedication?: Medication;
   };

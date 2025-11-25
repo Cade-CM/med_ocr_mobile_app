@@ -14,7 +14,8 @@ import {RootStackParamList} from '@types';
 import {MaterialIcons} from '@expo/vector-icons';
 import * as MediaLibrary from 'expo-media-library';
 import * as FileSystem from 'expo-file-system/legacy';
-import {GOOGLE_CLOUD_VISION_API_KEY, LOCAL_OCR_API_URL} from '../config/api';
+import * as ImagePicker from 'expo-image-picker';
+import {GOOGLE_CLOUD_VISION_API_KEY, getLocalOCRApiUrl, resetApiUrlCache} from '../config/api';
 import {OCRService} from '@services/OCRService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -26,6 +27,7 @@ const LabelCaptureScreen: React.FC<Props> = ({navigation}) => {
   const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions();
   const [isProcessing, setIsProcessing] = useState(false);
   const [zoom, setZoom] = useState(0.3); // 3x zoom default
+  const [enableTorch, setEnableTorch] = useState(false);
   const cameraRef = useRef<CameraView>(null);
 
   // Request permissions
@@ -55,6 +57,276 @@ const LabelCaptureScreen: React.FC<Props> = ({navigation}) => {
 
   const toggleCameraFacing = () => {
     setFacing(current => (current === 'back' ? 'front' : 'back'));
+    // Turn off torch when switching cameras (front camera doesn't have torch)
+    if (facing === 'back') {
+      setEnableTorch(false);
+    }
+  };
+
+  const toggleTorch = () => {
+    // Only allow torch on back camera
+    if (facing === 'back') {
+      setEnableTorch(current => !current);
+    }
+  };
+
+  const pickImage = async () => {
+    try {
+      // Request permission
+      const {status} = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(
+          'Permission Required',
+          'Please grant photo library access to upload images',
+        );
+        return;
+      }
+
+      // Pick image
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: 'images',
+        allowsEditing: false,
+        quality: 1,
+      });
+
+      if (result.canceled) {
+        return;
+      }
+
+      const photo = result.assets[0];
+      setIsProcessing(true);
+
+      // Perform OCR on the selected image
+      await processImage(photo.uri);
+    } catch (error: any) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to load image. Please try again.');
+      setIsProcessing(false);
+    }
+  };
+
+  const processImage = async (imageUri: string) => {
+    try {
+      let ocrText = '';
+      
+      // Discover the API URL automatically
+      const apiUrl = await getLocalOCRApiUrl();
+      
+      // Read the image as base64
+      const base64Image = await FileSystem.readAsStringAsync(imageUri, {
+        encoding: 'base64',
+      });
+
+      // Call OCR API
+      console.log('=== OCR API REQUEST ===');
+      console.log('URL:', `${apiUrl}/ocr/detailed`);
+      console.log('Image size (base64):', base64Image.length, 'characters');
+      console.log('Sending image to OCR API...');
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 120000);
+      
+      const startTime = Date.now();
+      const response = await fetch(`${apiUrl}/ocr/detailed`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          image: base64Image,
+        }),
+        signal: controller.signal,
+      });
+      
+      clearTimeout(timeoutId);
+      console.log('Response received in', (Date.now() - startTime) / 1000, 'seconds');
+      console.log('Response status:', response.status);
+
+      const result = await response.json();
+      console.log('OCR API Response:', result);
+
+      if (!result.success) {
+        throw new Error(result.error || 'OCR processing failed');
+      }
+
+      ocrText = result.text;
+      console.log('Extracted OCR Text:', ocrText);
+      
+      // Log line-by-line
+      const lines = ocrText.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+      console.log('\n=== OCR TEXT LINES ===');
+      lines.forEach((line, i) => console.log(`Line ${i}: "${line}"`));
+      console.log('======================\n');
+
+      // Use LLM-parsed data if available (from server), otherwise parse client-side
+      let parsedData;
+      if (result.parsed && result.method === 'LLM-enhanced') {
+        console.log('✓ Using LLM-parsed data from server');
+        // Convert server format to client format
+        parsedData = {
+          patientName: result.parsed.patientName || '',
+          drugName: result.parsed.drugName || '',
+          strength: result.parsed.strength || '',
+          dosage: result.parsed.dosage || '',
+          frequency: result.parsed.frequency || '',
+          duration: result.parsed.duration || '',
+          instructions: result.parsed.instructions || '',
+          prescriber: result.parsed.prescriber || '',
+          pharmacy: result.parsed.pharmacy || '',
+          pharmacyPhone: result.parsed.pharmacyPhone || '',
+          rxNumber: result.parsed.rxNumber || '',
+          fillDate: result.parsed.fillDate || '',
+          expirationDate: result.parsed.expirationDate || '',
+          quantity: result.parsed.quantity || 0,
+          refills: result.parsed.refills || 0,
+          confidence: (result.parsed.confidence || 0) * 100, // Convert 0-1 to 0-100
+        };
+      } else {
+        console.log('⚠️ LLM data not available, parsing client-side');
+        parsedData = await OCRService.parseMedicationLabel(ocrText);
+      }
+      
+      console.log('=== PARSED MEDICATION DATA ===');
+      console.log('Patient Name:', parsedData.patientName || '(not found)');
+      console.log('Drug Name:', parsedData.drugName || '(not found)');
+      console.log('Strength:', parsedData.strength || '(not found)');
+      console.log('Dosage:', parsedData.dosage || '(not found)');
+      console.log('Frequency:', parsedData.frequency || '(not found)');
+      console.log('Duration:', parsedData.duration || '(not found)');
+      console.log('Confidence:', parsedData.confidence.toFixed(1) + '%');
+      console.log('==============================\n');
+
+      // Validate patient name with fuzzy matching
+      if (parsedData.patientName) {
+        const userFirstName = await AsyncStorage.getItem('userFirstName');
+        const userLastName = await AsyncStorage.getItem('userLastName');
+        
+        if (userFirstName && userLastName) {
+          const extractedName = parsedData.patientName.trim().toLowerCase();
+          const expectedFirstName = userFirstName.toLowerCase();
+          const expectedLastName = userLastName.toLowerCase();
+          
+          // Helper function for fuzzy string matching
+          const fuzzyMatch = (str1: string, str2: string): number => {
+            const longer = str1.length > str2.length ? str1 : str2;
+            const shorter = str1.length > str2.length ? str2 : str1;
+            
+            if (longer.length === 0) return 1.0;
+            
+            const editDistance = (s1: string, s2: string): number => {
+              const costs: number[] = [];
+              for (let i = 0; i <= s1.length; i++) {
+                let lastValue = i;
+                for (let j = 0; j <= s2.length; j++) {
+                  if (i === 0) {
+                    costs[j] = j;
+                  } else if (j > 0) {
+                    let newValue = costs[j - 1];
+                    if (s1.charAt(i - 1) !== s2.charAt(j - 1)) {
+                      newValue = Math.min(Math.min(newValue, lastValue), costs[j]) + 1;
+                    }
+                    costs[j - 1] = lastValue;
+                    lastValue = newValue;
+                  }
+                }
+                if (i > 0) costs[s2.length] = lastValue;
+              }
+              return costs[s2.length];
+            };
+            
+            return (longer.length - editDistance(longer, shorter)) / longer.length;
+          };
+          
+          // Check if first and last names are in the extracted name
+          const firstNameInExtracted = extractedName.includes(expectedFirstName);
+          const lastNameInExtracted = extractedName.includes(expectedLastName);
+          
+          // Also check fuzzy match (allow 80% similarity for OCR errors)
+          const extractedParts = extractedName.split(/\s+/);
+          let firstNameMatch = firstNameInExtracted;
+          let lastNameMatch = lastNameInExtracted;
+          
+          // Check each part against expected names with fuzzy matching
+          for (const part of extractedParts) {
+            if (part.length < 3) continue; // Skip short words
+            
+            if (fuzzyMatch(part, expectedFirstName) >= 0.8) {
+              firstNameMatch = true;
+            }
+            if (fuzzyMatch(part, expectedLastName) >= 0.8) {
+              lastNameMatch = true;
+            }
+          }
+          
+          console.log(`🔍 Name validation: "${parsedData.patientName}" vs "${userFirstName} ${userLastName}"`);
+          console.log(`   First name match: ${firstNameMatch}, Last name match: ${lastNameMatch}`);
+          
+          if (!firstNameMatch || !lastNameMatch) {
+            setIsProcessing(false);
+            Alert.alert(
+              'Name Mismatch',
+              `The patient name "${parsedData.patientName}" does not match your account name "${userFirstName} ${userLastName}".\n\nPrescriptions can only be scanned for your own account. Please try again.`,
+              [{text: 'OK', style: 'default'}],
+            );
+            return;
+          }
+        }
+      }
+
+      // Check confidence
+      if (parsedData.confidence < 30) {
+        setIsProcessing(false);
+        Alert.alert(
+          'Low Confidence Scan',
+          `The scan quality is low (${parsedData.confidence.toFixed(1)}% confidence). Please try again with a clearer image.`,
+          [
+            {text: 'Try Again', style: 'default'},
+            {
+              text: 'Enter Manually',
+              style: 'cancel',
+              onPress: () => {
+                setIsProcessing(false);
+                navigation.navigate('MedicationReview', {
+                  imageUri,
+                  rawOcrText: ocrText,
+                  parsedData: parsedData,
+                });
+              },
+            },
+          ],
+        );
+        return;
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 100));
+      setIsProcessing(false);
+
+      // Navigate to review screen with parsed data
+      navigation.navigate('MedicationReview', {
+        imageUri,
+        rawOcrText: ocrText,
+        parsedData: parsedData,
+      });
+    } catch (error: any) {
+      console.error('OCR Error:', error);
+      
+      if (error.message?.includes('Network request failed') || 
+          error.message?.includes('fetch') ||
+          error.name === 'AbortError') {
+        console.log('Resetting API URL cache...');
+        resetApiUrlCache();
+      }
+      
+      Alert.alert(
+        'OCR Failed',
+        error.name === 'AbortError'
+          ? 'Processing timed out. The server may be starting up. Please try again.'
+          : error.message?.includes('Network request failed')
+          ? 'Cannot connect to OCR API. Make sure the Flask server is running.'
+          : 'Failed to process the image. Please try again.',
+      );
+      setIsProcessing(false);
+    }
   };
 
   const takePicture = async () => {
@@ -89,139 +361,24 @@ const LabelCaptureScreen: React.FC<Props> = ({navigation}) => {
       // Save to media library
       await MediaLibrary.createAssetAsync(photo.uri);
 
-      // Perform OCR using local Flask API
-      let ocrText = '';
-      try {
-        // Read the image as base64
-        const base64Image = await FileSystem.readAsStringAsync(photo.uri, {
-          encoding: 'base64',
-        });
-
-        // Call local OCR API
-        const response = await fetch(`${LOCAL_OCR_API_URL}/ocr/detailed`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            image: base64Image,
-          }),
-        });
-
-        const result = await response.json();
-
-        console.log('OCR API Response:', result);
-
-        if (!result.success) {
-          throw new Error(result.error || 'OCR processing failed');
-        }
-
-        ocrText = result.text;
-
-        console.log('Extracted OCR Text:', ocrText);
-        
-        // Log line-by-line for debugging
-        const lines = ocrText.split('\n').map(line => line.trim()).filter(line => line.length > 0);
-        console.log('\n=== OCR TEXT LINES ===');
-        lines.forEach((line, i) => console.log(`Line ${i}: "${line}"`));
-        console.log('======================\n');
-
-        // Parse and log the extracted medication data
-        const parsedData = await OCRService.parseMedicationLabel(ocrText);
-        console.log('=== PARSED MEDICATION DATA ===');
-        console.log('Patient Name:', parsedData.patientName || '(not found)');
-        console.log('Drug Name:', parsedData.drugName || '(not found)');
-        console.log('Strength:', parsedData.strength || '(not found)');
-        console.log('Dosage:', parsedData.dosage || '(not found)');
-        console.log('Frequency:', parsedData.frequency || '(not found)');
-        console.log('Duration:', parsedData.duration || '(not found)');
-        console.log('Confidence:', parsedData.confidence.toFixed(1) + '%');
-        console.log('==============================\n');
-
-        // Validate patient name matches logged-in user
-        if (parsedData.patientName) {
-          const userFirstName = await AsyncStorage.getItem('userFirstName');
-          const userLastName = await AsyncStorage.getItem('userLastName');
-          
-          if (userFirstName && userLastName) {
-            const enteredName = parsedData.patientName.trim().toLowerCase();
-            const firstNameMatch = enteredName.includes(userFirstName.toLowerCase());
-            const lastNameMatch = enteredName.includes(userLastName.toLowerCase());
-            
-            if (!firstNameMatch || !lastNameMatch) {
-              setIsProcessing(false);
-              Alert.alert(
-                'Name Mismatch',
-                `The patient name "${parsedData.patientName}" does not match your account name "${userFirstName} ${userLastName}".\n\nPrescriptions can only be scanned for your own account. Please scan again.`,
-                [
-                  {
-                    text: 'OK',
-                    style: 'default',
-                  },
-                ],
-              );
-              return;
-            }
-          }
-        }
-
-        // Check confidence threshold (lowered to 30%)
-        if (parsedData.confidence < 30) {
-          setIsProcessing(false);
-          Alert.alert(
-            'Low Confidence Scan',
-            `The scan quality is low (${parsedData.confidence.toFixed(1)}% confidence). Please try again:\n\n• Ensure good lighting\n• Hold camera steady\n• Focus on the prescription label\n• Avoid glare and shadows`,
-            [
-              {
-                text: 'Scan Again',
-                style: 'default',
-              },
-              {
-                text: 'Enter Manually',
-                style: 'cancel',
-                onPress: () => {
-                  setIsProcessing(false);
-                  navigation.navigate('MedicationReview', {
-                    imageUri: photo.uri,
-                    rawOcrText: ocrText,
-                  });
-                },
-              },
-            ],
-          );
-          return;
-        }
-
-        // Allow empty text to pass through - user can manually enter data
-        if (!ocrText) {
-          ocrText = '';
-        }
-      } catch (ocrError: any) {
-        console.error('OCR Error:', ocrError);
-        Alert.alert(
-          'OCR Failed',
-          ocrError.message?.includes('Network request failed')
-            ? 'Cannot connect to OCR API. Make sure the Flask server is running:\n\ncd api\npython app.py'
-            : 'Failed to process the image. Please try again.',
-        );
-        setIsProcessing(false);
-        return;
-      }
-
-        // Wait a moment to ensure all processing is complete
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
-        setIsProcessing(false);
-
-        // Navigate to review screen AFTER all processing is done
-        navigation.navigate('MedicationReview', {
-          imageUri: photo.uri,
-          rawOcrText: ocrText,
-        });
-    } catch (error) {
+      // Process the captured image
+      await processImage(photo.uri);
+    } catch (error: any) {
       setIsProcessing(false);
       console.error('Error capturing photo:', error);
-      Alert.alert('Error', 'Failed to capture photo. Please try again.');
+      
+      if (error.name === 'AbortError') {
+        Alert.alert(
+          'Timeout',
+          'Image processing took too long. The server may be waking up from sleep. Please try again in 30 seconds.'
+        );
+      } else {
+        Alert.alert(
+          'Error', 
+          'Failed to process image. Please try again.\n\n' + 
+          (error.message || 'Unknown error')
+        );
+      }
     }
   };
 
@@ -232,6 +389,7 @@ const LabelCaptureScreen: React.FC<Props> = ({navigation}) => {
         facing={facing}
         ref={cameraRef}
         zoom={zoom}
+        enableTorch={enableTorch}
       />
       
       {/* Camera overlay - positioned absolutely */}
@@ -274,9 +432,30 @@ const LabelCaptureScreen: React.FC<Props> = ({navigation}) => {
           </View>
 
           <View style={styles.controlsContainer}>
-            {/* Flash button (placeholder) */}
-            <TouchableOpacity style={styles.controlButton}>
-              <MaterialIcons name="flash-off" size={28} color="white" />
+            {/* Upload image button */}
+            <TouchableOpacity 
+              style={styles.controlButton}
+              onPress={pickImage}
+              disabled={isProcessing}
+            >
+              <MaterialIcons 
+                name="photo-library" 
+                size={28} 
+                color={isProcessing ? '#666' : 'white'} 
+              />
+            </TouchableOpacity>
+
+            {/* Flash/Torch button */}
+            <TouchableOpacity 
+              style={styles.controlButton}
+              onPress={toggleTorch}
+              disabled={facing !== 'back'}
+            >
+              <MaterialIcons 
+                name={enableTorch ? "flash-on" : "flash-off"} 
+                size={28} 
+                color={facing === 'back' ? 'white' : '#666'} 
+              />
             </TouchableOpacity>
 
             {/* Capture button */}
@@ -299,6 +478,9 @@ const LabelCaptureScreen: React.FC<Props> = ({navigation}) => {
             >
               <MaterialIcons name="flip-camera-ios" size={28} color="white" />
             </TouchableOpacity>
+
+            {/* Empty space for symmetry */}
+            <View style={styles.controlButton} />
           </View>
 
           <Text style={styles.tipText}>

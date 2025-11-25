@@ -323,6 +323,13 @@ export class MedicationDatabase {
   }
 
   /**
+   * Get all local patient names for fuzzy matching
+   */
+  static async getLocalPatients(): Promise<Array<{firstName: string, lastName: string}>> {
+    return await StorageService.getPatientNames();
+  }
+
+  /**
    * Check if a word is likely a medication name
    * Requires 90% similarity to avoid false positives (e.g., "CADE" vs "CADEXOMER IODINE")
    */

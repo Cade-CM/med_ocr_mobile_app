@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Medication Adherence",
+    "name": "MedBuddy",
     "slug": "med-ocr-expo",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -12,10 +12,11 @@
       "backgroundColor": "#007AFF"
     },
     "ios": {
-      "bundleIdentifier": "com.medicationadherence.app",
+      "bundleIdentifier": "com.medbuddy.app",
       "infoPlist": {
         "NSCameraUsageDescription": "This app needs camera access to scan prescription labels.",
-        "NSPhotoLibraryUsageDescription": "This app needs photo library access to save prescription images."
+        "NSPhotoLibraryUsageDescription": "This app needs photo library access to save prescription images.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -23,11 +24,19 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#007AFF"
       },
-      "package": "com.medicationadherence.app",
+      "package": "com.medbuddy.app",
       "permissions": [
         "CAMERA",
         "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE"
+        "WRITE_EXTERNAL_STORAGE",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_AUDIO"
       ]
     },
     "web": {
@@ -37,16 +46,21 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow Medication Adherence to access your camera to scan prescription labels."
+          "cameraPermission": "Allow MedBuddy to access your camera to scan prescription labels."
         }
       ],
       [
         "expo-media-library",
         {
-          "photosPermission": "Allow Medication Adherence to save prescription photos.",
-          "savePhotosPermission": "Allow Medication Adherence to save prescription photos to your photo library."
+          "photosPermission": "Allow MedBuddy to save prescription photos.",
+          "savePhotosPermission": "Allow MedBuddy to save prescription photos to your photo library."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "ac222c58-c283-44ee-919d-426da20ebcb2"
+      }
+    }
   }
 }

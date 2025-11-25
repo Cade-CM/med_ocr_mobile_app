@@ -19,7 +19,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 type Props = NativeStackScreenProps<RootStackParamList, 'MedicationReview'>;
 
 const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
-  const {imageUri, rawOcrText, editMode, existingMedication} = route.params;
+  const {
+    imageUri = '',
+    rawOcrText = '',
+    parsedData: initialParsedData,
+    editMode = false,
+    existingMedication
+  } = route.params || {};
   
   const [parsedData, setParsedData] = useState<ParsedMedicationData>(() => {
     if (editMode && existingMedication) {
@@ -40,6 +46,10 @@ const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
         pharmacyPhone: existingMedication.pharmacyPhone,
         confidence: 100, // Manually entered/edited data
       };
+    } else if (initialParsedData) {
+      // Use LLM-parsed data from server if available
+      console.log('MedicationReviewScreen: Using LLM-parsed data from server');
+      return initialParsedData;
     } else {
       // Return empty initial state, will parse in useEffect
       return {
@@ -77,11 +87,11 @@ const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
   const [originalPharmacy, setOriginalPharmacy] = useState(parsedData.pharmacy || '');
   const [originalPharmacyPhone, setOriginalPharmacyPhone] = useState(parsedData.pharmacyPhone || '');
 
-  // Parse OCR text on mount (only in non-edit mode)
+  // Parse OCR text on mount (only in non-edit mode and if no parsed data provided)
   useEffect(() => {
     const parseInitialData = async () => {
-      if (!editMode && rawOcrText) {
-        console.log('MedicationReviewScreen: Initial parse');
+      if (!editMode && !initialParsedData && rawOcrText) {
+        console.log('MedicationReviewScreen: Initial parse (client-side fallback)');
         const parsed = await OCRService.parseMedicationLabel(rawOcrText || '');
         console.log('MedicationReviewScreen: Parsed data:', parsed);
         
@@ -186,10 +196,10 @@ const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
     // Optional fields keep blank value if nothing entered
   };
 
-  // Re-parse when rawOcrText changes (only in non-edit mode)
+  // Re-parse when rawOcrText changes (only in non-edit mode and no parsed data)
   useEffect(() => {
     const reparseData = async () => {
-      if (!editMode) {
+      if (!editMode && !initialParsedData && rawOcrText) {
         console.log('MedicationReviewScreen: Reparsing due to new OCR text');
         const newParsed = await OCRService.parseMedicationLabel(rawOcrText || '');
         console.log('MedicationReviewScreen: New parsed data:', newParsed);
@@ -226,7 +236,7 @@ const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
     };
     
     reparseData();
-  }, [rawOcrText, editMode]);
+  }, [rawOcrText, editMode, initialParsedData]);
 
   const handleContinue = async () => {
     if (!drugName.trim()) {

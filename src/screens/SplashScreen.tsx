@@ -50,7 +50,7 @@ const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
         ]}
       >
         <Image
-          source={require('../../assets/splash-logo.png')}
+          source={require('../../assets/MedBuddyLogo.png')}
           style={styles.logo}
         />
         <Text style={styles.title}>MedBuddy</Text>

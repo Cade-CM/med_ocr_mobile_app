@@ -5,11 +5,13 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { MaterialIcons } from '@expo/vector-icons';
 import { RootStackParamList } from './src/types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, View, TouchableOpacity, Text } from 'react-native';
 
 // Screens
 import SplashScreen from './src/screens/SplashScreen';
 import LoginScreen from './src/screens/LoginScreen';
+import SignUpScreen from './src/screens/SignUpScreen';
+import ProfileSetupScreen from './src/screens/ProfileSetupScreen';
 import HomeScreen from './src/screens/HomeScreen';
 import LabelCaptureScreen from './src/screens/LabelCaptureScreen';
 import MedicationReviewScreen from './src/screens/MedicationReviewScreen';
@@ -103,6 +105,16 @@ export default function App() {
           options={{ headerShown: false }}
         />
         <Stack.Screen
+          name="SignUp"
+          component={SignUpScreen}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="ProfileSetup"
+          component={ProfileSetupScreen}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
           name="Home"
           component={MainTabs}
           options={{ headerShown: false }}
@@ -115,22 +127,21 @@ export default function App() {
             headerStyle: { backgroundColor: '#007AFF' },
             headerTintColor: 'white',
             headerRight: () => (
-              <MaterialIcons.Button
-                name="edit"
-                size={20}
-                color="white"
-                backgroundColor="transparent"
+              <TouchableOpacity
                 onPress={() => {
+                  console.log('Manual Entry button pressed');
                   navigation.navigate('MedicationReview', {
                     imageUri: '',
                     rawOcrText: '',
+                    parsedData: undefined,
+                    editMode: false,
                   });
                 }}
-                style={{ marginRight: 0 }}
-                iconStyle={{ marginRight: 5 }}
+                style={{ flexDirection: 'row', alignItems: 'center', marginRight: 15, padding: 5 }}
               >
-                Manual
-              </MaterialIcons.Button>
+                <MaterialIcons name="edit" size={20} color="white" style={{ marginRight: 5 }} />
+                <Text style={{ color: 'white', fontSize: 16, fontWeight: '600' }}>Manual</Text>
+              </TouchableOpacity>
             ),
           })}
         />

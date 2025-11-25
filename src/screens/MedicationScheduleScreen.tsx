@@ -56,7 +56,13 @@ const MedicationScheduleScreen: React.FC<Props> = ({route, navigation}) => {
           [
             {
               text: 'OK',
-              onPress: () => navigation.navigate('Home'),
+              onPress: () => {
+                // Navigate back to Home screen and trigger refresh
+                navigation.reset({
+                  index: 0,
+                  routes: [{ name: 'Home' }],
+                });
+              },
             },
           ],
         );
@@ -70,7 +76,12 @@ const MedicationScheduleScreen: React.FC<Props> = ({route, navigation}) => {
           [
             {
               text: 'OK',
-              onPress: () => navigation.navigate('Home'),
+              onPress: () => {
+                navigation.reset({
+                  index: 0,
+                  routes: [{ name: 'Home' }],
+                });
+              },
             },
           ],
         );

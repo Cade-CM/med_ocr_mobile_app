@@ -394,8 +394,11 @@ def process_ocr_detailed():
                            for img, angle, name in rotations}
         
         print(f"Created {len(rotation_futures)} rotation tasks")
+        rotation_scores = []
         for future in as_completed(rotation_futures):
             conf, rot_img, name = future.result()
+            rotation_scores.append((name, conf))
+            print(f"  {name}: {conf:.1f}% confidence")
             if conf > best_rotation_conf:
                 best_rotation_conf = conf
                 best_rotation_img = rot_img
@@ -404,10 +407,25 @@ def process_ocr_detailed():
             # OPTIMIZATION: Early exit if confidence > 90%
             if best_rotation_conf > 90:
                 log(f"Early exit: {name} has {best_rotation_conf:.1f}% confidence")
+                print(f"Early exit at {name} with {best_rotation_conf:.1f}% confidence")
                 break
+        
+        # Print all rotation scores for debugging
+        print("\n=== ROTATION SCORES ===")
+        for name, score in sorted(rotation_scores, key=lambda x: x[1], reverse=True):
+            marker = "✓" if name == best_rotation_name else " "
+            print(f"{marker} {name}: {score:.1f}%")
+        print("=======================\n")
         
         img_cv = best_rotation_img
         log(f"\nBest rotation: {best_rotation_name} ({best_rotation_conf:.1f}%)")
+        print(f"✓ Using rotation: {best_rotation_name} with {best_rotation_conf:.1f}% confidence")
+        
+        # Save debug image to verify rotation (if not in production mode)
+        if not PRODUCTION_MODE:
+            debug_path = os.path.join(DATA_DIR, 'debug_rotation.jpg')
+            cv2.imwrite(debug_path, best_rotation_img)
+            print(f"Debug: Saved rotated image to {debug_path}")
         
         # OPTIMIZATION: Reduced upscaling threshold (1500px instead of 2000px)
         h, w = img_cv.shape[:2]
@@ -468,15 +486,15 @@ def process_ocr_detailed():
             'method': method
         }
         
-        # Use hybrid parsing if LLM is available and confidence is low
-        if LLM_ENABLED and avg_confidence < 70:
-            log(f"Low confidence, attempting LLM enhancement...")
-            llm_result = hybrid_parse(text, regex_result, confidence_threshold=0.7)
+        # Use LLM-first hybrid parsing if available
+        if LLM_ENABLED:
+            print("\n🤖 Starting LLM-first parsing...")
+            llm_result = hybrid_parse(text, regex_result, confidence_threshold=0.7, prefer_llm=True)
             
-            # If LLM provided structured data, include it
+            # If LLM provided structured data, return it
             if 'patientName' in llm_result or 'drugName' in llm_result:
                 elapsed = time.time() - start_time
-                log(f"⏱️ Total processing time: {elapsed:.2f}s")
+                print(f"⏱️ Total processing time: {elapsed:.2f}s")
                 
                 return jsonify({
                     'success': True,
@@ -488,8 +506,9 @@ def process_ocr_detailed():
                     'processing_time': round(elapsed, 2)
                 })
         
+        # Fallback to regex-only result if LLM not available
         elapsed = time.time() - start_time
-        log(f"⏱️ Total processing time: {elapsed:.2f}s")
+        print(f"⏱️ Total processing time: {elapsed:.2f}s (regex-only)")
         
         return jsonify({
             'success': True,

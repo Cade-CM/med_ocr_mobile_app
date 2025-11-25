@@ -68,11 +68,19 @@ const SettingsScreen: React.FC = () => {
           text: 'Sign Out',
           style: 'destructive',
           onPress: async () => {
-            await AsyncStorage.removeItem('isLoggedIn');
-            navigation.reset({
-              index: 0,
-              routes: [{name: 'Login'}],
-            });
+            try {
+              await AsyncStorage.removeItem('isLoggedIn');
+              await AsyncStorage.removeItem('userFirstName');
+              await AsyncStorage.removeItem('userLastName');
+              // Use the parent navigator (CommonActions from @react-navigation/native)
+              navigation.getParent()?.reset({
+                index: 0,
+                routes: [{name: 'Login'}],
+              });
+            } catch (error) {
+              console.error('Error signing out:', error);
+              Alert.alert('Error', 'Failed to sign out. Please try again.');
+            }
           },
         },
       ],
@@ -305,7 +313,7 @@ const SettingsScreen: React.FC = () => {
 
         {/* App Info */}
         <View style={styles.infoSection}>
-          <Text style={styles.appName}>MedAdherence</Text>
+          <Text style={styles.appName}>MedBuddy</Text>
           <Text style={styles.appVersion}>Version 1.0.0</Text>
           <Text style={styles.appDescription}>
             Medication adherence tracking with OCR label capture

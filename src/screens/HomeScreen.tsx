@@ -43,15 +43,26 @@ const HomeScreen: React.FC<Props> = ({navigation}) => {
   };
 
   const handleEditMedication = (medication: Medication) => {
+    console.log('Edit medication pressed:', medication.drugName);
+    console.log('Navigation params:', {
+      imageUri: medication.capturedImageUri || '',
+      rawOcrText: medication.rawOcrText || '',
+      editMode: true,
+      existingMedication: medication,
+    });
+    
     navigation.navigate('MedicationReview', {
       imageUri: medication.capturedImageUri || '',
-      rawOcrText: medication.rawOcrText,
+      rawOcrText: medication.rawOcrText || '',
+      parsedData: undefined,
       editMode: true,
       existingMedication: medication,
     });
   };
 
   const handleDeleteMedication = (medication: Medication) => {
+    console.log('Delete medication pressed:', medication.drugName);
+    
     Alert.alert(
       'Delete Medication',
       `Are you sure you want to delete ${medication.drugName}?`,
@@ -61,8 +72,10 @@ const HomeScreen: React.FC<Props> = ({navigation}) => {
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
+            console.log('Deleting medication:', medication.id);
             await StorageService.deleteMedication(medication.id);
-            loadMedications();
+            await loadMedications();
+            console.log('Medication deleted successfully');
           },
         },
       ],
@@ -86,12 +99,18 @@ const HomeScreen: React.FC<Props> = ({navigation}) => {
           <View style={styles.actionButtons}>
             <TouchableOpacity
               onPress={() => handleEditMedication(item)}
-              style={styles.editButton}>
+              style={styles.editButton}
+              activeOpacity={0.7}
+              hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
+            >
               <Icon name="edit" size={22} color="#007AFF" />
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => handleDeleteMedication(item)}
-              style={styles.deleteButton}>
+              style={styles.deleteButton}
+              activeOpacity={0.7}
+              hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
+            >
               <Icon name="delete-outline" size={22} color="#FF3B30" />
             </TouchableOpacity>
           </View>
@@ -206,10 +225,18 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   editButton: {
-    padding: 5,
+    padding: 8,
+    minWidth: 44,
+    minHeight: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   deleteButton: {
-    padding: 5,
+    padding: 8,
+    minWidth: 44,
+    minHeight: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   nextDoseContainer: {
     flexDirection: 'row',

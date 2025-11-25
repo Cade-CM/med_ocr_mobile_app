@@ -79,9 +79,9 @@ export class OCRService {
       totalChecks++;
     }
 
-    // Extract drug name (usually in the first few lines, often in caps or bold)
+    // Extract drug name (pass patientName to avoid re-extraction)
     try {
-      result.drugName = await this.extractDrugName(cleanLines);
+      result.drugName = await this.extractDrugName(cleanLines, result.patientName);
       totalChecks++;
       if (result.drugName) confidenceScore++;
     } catch (error) {
@@ -172,11 +172,11 @@ export class OCRService {
         continue;
       }
       
-      // Clean the line
-      const cleaned = line.replace(/^[^A-Za-z]+/, '').trim();
+      // Clean the line - remove all symbols except hyphens, parentheses, letters, and spaces
+      const cleaned = line.replace(/[^A-Za-z\s\-()]/g, '').trim();
       
-      // Look for name pattern: FIRSTNAME LASTNAME
-      const nameMatch = cleaned.match(/^([A-Z][A-Z]{2,})\s+([A-Z][A-Z]+)(?:\s|$)/i);
+      // Look for name pattern: FIRSTNAME LASTNAME (now handles trailing punctuation)
+      const nameMatch = cleaned.match(/^([A-Z][A-Z]{2,})\s+([A-Z][A-Z]+)/i);
       
       if (nameMatch) {
         const firstName = nameMatch[1].trim().toUpperCase();
@@ -242,27 +242,94 @@ export class OCRService {
     
     console.log('🔍 Extracting patient name from line 0:', lines[0]);
     
-    // Clean the line
-    const firstLine = lines[0].replace(/^[^A-Za-z]+/, '').trim();
+    // Clean the line - remove all symbols except hyphens, parentheses, letters, and spaces
+    const firstLine = lines[0].replace(/[^A-Za-z\s\-()]/g, '').trim();
     console.log('🔍 After cleaning:', firstLine);
     
-    // Parse patient name: FIRSTNAME LASTNAME
-    const nameMatch = firstLine.match(/^([A-Z][A-Z]{2,})\s+([A-Z][A-Z]+)(?:\s|$)/i);
+    // Parse patient name: FIRSTNAME LASTNAME (now handles trailing punctuation)
+    const nameMatch = firstLine.match(/^([A-Z][A-Z]{2,})\s+([A-Z][A-Z]+)/i);
     if (nameMatch) {
-      const firstName = nameMatch[1].trim().toUpperCase();
-      const lastName = nameMatch[2].trim().toUpperCase();
-      const fullName = firstName + ' ' + lastName;
+      let firstName = nameMatch[1].trim().toUpperCase();
+      let lastName = nameMatch[2].trim().toUpperCase();
+      let fullName = firstName + ' ' + lastName;
       console.log(`🔍 Found name pattern: ${fullName}`);
       
       if (fullName.length >= 5 && fullName.length <= 30) {
-        // PRIORITY 1: Check if it's in local patient database
-        const isKnownPatient = await MedicationDatabase.isKnownLocalPatient(firstName, lastName);
-        if (isKnownPatient) {
-          console.log(`✓ Extracted known patient name (local DB): ${fullName}`);
-          return fullName; // Skip medication check entirely
+        // PRIORITY 1: Check local patient database and correct OCR errors with fuzzy matching
+        const localPatients = await MedicationDatabase.getLocalPatients();
+        
+        if (localPatients && localPatients.length > 0) {
+          console.log(`📦 Checking against ${localPatients.length} local patient(s)`);
+          
+          // Fuzzy match helper using Levenshtein distance
+          const fuzzyMatch = (str1: string, str2: string): number => {
+            const longer = str1.length > str2.length ? str1 : str2;
+            const shorter = str1.length > str2.length ? str2 : str1;
+            
+            if (longer.length === 0) return 1.0;
+            
+            const editDistance = (s1: string, s2: string): number => {
+              const costs: number[] = [];
+              for (let i = 0; i <= s1.length; i++) {
+                let lastValue = i;
+                for (let j = 0; j <= s2.length; j++) {
+                  if (i === 0) {
+                    costs[j] = j;
+                  } else if (j > 0) {
+                    let newValue = costs[j - 1];
+                    if (s1.charAt(i - 1) !== s2.charAt(j - 1)) {
+                      newValue = Math.min(Math.min(newValue, lastValue), costs[j]) + 1;
+                    }
+                    costs[j - 1] = lastValue;
+                    lastValue = newValue;
+                  }
+                }
+                if (i > 0) costs[s2.length] = lastValue;
+              }
+              return costs[s2.length];
+            };
+            
+            return (longer.length - editDistance(longer, shorter)) / longer.length;
+          };
+          
+          // Find best match in local database (80% similarity threshold for OCR errors)
+          let bestMatch: {firstName: string, lastName: string, similarity: number} | null = null;
+          
+          for (const patient of localPatients) {
+            const firstNameSimilarity = fuzzyMatch(firstName, patient.firstName.toUpperCase());
+            const lastNameSimilarity = fuzzyMatch(lastName, patient.lastName.toUpperCase());
+            const averageSimilarity = (firstNameSimilarity + lastNameSimilarity) / 2;
+            
+            console.log(`   Comparing "${firstName} ${lastName}" to "${patient.firstName} ${patient.lastName}": ${(averageSimilarity * 100).toFixed(1)}%`);
+            
+            if (averageSimilarity >= 0.8 && (!bestMatch || averageSimilarity > bestMatch.similarity)) {
+              bestMatch = {
+                firstName: patient.firstName.toUpperCase(),
+                lastName: patient.lastName.toUpperCase(),
+                similarity: averageSimilarity
+              };
+            }
+          }
+          
+          if (bestMatch) {
+            console.log(`✓ Corrected OCR name: "${firstName} ${lastName}" → "${bestMatch.firstName} ${bestMatch.lastName}" (${(bestMatch.similarity * 100).toFixed(1)}% match)`);
+            firstName = bestMatch.firstName;
+            lastName = bestMatch.lastName;
+            fullName = firstName + ' ' + lastName;
+            return fullName;
+          } else {
+            console.log(`⚠️ No match found in local database (< 80% similarity)`);
+          }
         }
         
-        // PRIORITY 2: Validate against medication database (90% similarity threshold)
+        // PRIORITY 2: Check if exact match in local database
+        const isKnownPatient = await MedicationDatabase.isKnownLocalPatient(firstName, lastName);
+        if (isKnownPatient) {
+          console.log(`✓ Extracted known patient name (exact local DB match): ${fullName}`);
+          return fullName;
+        }
+        
+        // PRIORITY 3: Validate against medication database (90% similarity threshold)
         try {
           const fullNameIsMed = await MedicationDatabase.isMedicationStrict(fullName);
           const firstNameIsMed = await MedicationDatabase.isMedicationStrict(firstName);
@@ -318,19 +385,15 @@ export class OCRService {
    * ALWAYS expect medication on line 2 (with strength following on same line)
    * Only check line 1 if patient name was NOT found on line 1
    */
-  private static async extractDrugName(lines: string[]): Promise<string | undefined> {
+  private static async extractDrugName(lines: string[], patientName?: string): Promise<string | undefined> {
     if (lines.length === 0) return undefined;
     
     console.log('🔍 Extracting drug name...');
     
-    // First, identify patient name to determine which line has the drug
-    const patientName = await this.extractPatientName(lines);
-    console.log('🔍 Patient name found:', patientName || '(none)');
-    
-    // Determine starting line: if patient on line 1, drug is on line 2; otherwise drug is on line 1
+    // Determine starting line: if patient on line 0, drug is on line 1; otherwise drug is on line 0
     let startLine = 0;
     if (patientName && lines.length > 0 && lines[0].toUpperCase().includes(patientName)) {
-      startLine = 1; // Patient on line 1, so drug on line 2
+      startLine = 1; // Patient on line 0, so drug on line 1
       console.log('🔍 Patient on line 0, checking line 1 for drug');
     } else {
       console.log('🔍 No patient on line 0, checking line 0 for drug');
@@ -367,8 +430,44 @@ export class OCRService {
    * Handles multi-word drug names like "DOXYCYCLINE MONOHYDRATE"
    */
   private static async parseDrugFromLine(line: string, patientName?: string): Promise<string | undefined> {
-    // Skip the patient name if it appears
-    if (patientName && line.includes(patientName)) {
+    // Skip lines containing patient name parts (handles OCR errors)
+    if (patientName) {
+      const nameParts = patientName.toUpperCase().split(' ').filter(part => part.length >= 3);
+      const lineUpper = line.toUpperCase();
+      
+      // Check each name part with fuzzy matching
+      for (const namePart of nameParts) {
+        // Exact match or very close match (accounting for OCR errors)
+        if (lineUpper.includes(namePart)) {
+          console.log(`⏭️ Skipping line containing patient name "${namePart}": "${line}"`);
+          return undefined;
+        }
+        
+        // Fuzzy match: check if line contains most characters of the name part
+        // This handles cases like "CAMERON" in "SCAMERO" or "MONTE" in "MONTES"
+        const words = lineUpper.split(/\s+/);
+        for (const word of words) {
+          if (word.length < 3) continue;
+          
+          // Calculate character overlap
+          let matchCount = 0;
+          for (const char of namePart) {
+            if (word.includes(char)) matchCount++;
+          }
+          
+          // If >70% of name part characters appear in this word, likely same name
+          const similarity = matchCount / namePart.length;
+          if (similarity > 0.7 && Math.abs(word.length - namePart.length) <= 3) {
+            console.log(`⏭️ Skipping line with fuzzy name match "${namePart}" ≈ "${word}": "${line}"`);
+            return undefined;
+          }
+        }
+      }
+    }
+    
+    // Clean the line: remove all symbols except hyphens, parentheses, letters, and spaces
+    const cleaned = line.replace(/[^A-Za-z0-9\s\-()]/g, '').trim();
+    if (cleaned.length < 3) {
       return undefined;
     }
       
@@ -376,28 +475,28 @@ export class OCRService {
     // Address detection: Look for common address patterns
     // - Street suffixes: DR, DRIVE, STREET, AVE, RD, BLVD, HWY, LANE, CT, etc.
     // - Format: "123 STREET NAME" or "STREET NAME DR"
-    if (/\b(street|st|avenue|ave|road|rd|drive|dr|boulevard|blvd|lane|ln|court|ct|circle|cir|way|place|pl|highway|hwy|parkway|pkwy)\b[,\s]|[,\s]\b(street|st|avenue|ave|road|rd|drive|dr|boulevard|blvd|lane|ln|court|ct|circle|cir|way|place|pl|highway|hwy|parkway|pkwy)\b/i.test(line)) {
+    if (/\b(street|st|avenue|ave|road|rd|drive|dr|boulevard|blvd|lane|ln|court|ct|circle|cir|way|place|pl|highway|hwy|parkway|pkwy)\b[,\s]|[,\s]\b(street|st|avenue|ave|road|rd|drive|dr|boulevard|blvd|lane|ln|court|ct|circle|cir|way|place|pl|highway|hwy|parkway|pkwy)\b/i.test(cleaned)) {
       return undefined;
     }
     
     // Skip lines with 4+ digits (likely address numbers, zip codes, RX numbers without dashes)
-    if (/\d{4,}/.test(line)) {
+    if (/\d{4,}/.test(cleaned)) {
       return undefined;
     }
     
     // Skip pharmacy-related lines
-    if (/pharmacy|take\s+\d|tablet|capsule|by mouth|meal|hour|day|refill|dr\.\s*auth/i.test(line)) {
+    if (/pharmacy|take\s+\d|tablet|capsule|by mouth|meal|hour|day|refill|dr\.\s*auth/i.test(cleaned)) {
       return undefined;
     }
     
     // Skip manufacturer lines
-    if (/^(mfg|manuf|manufacturer)/i.test(line)) {
+    if (/^(mfg|manuf|manufacturer)/i.test(cleaned)) {
       return undefined;
     }
       
     // PATTERN 1: Multi-word drug name (e.g., "DOXYCYCLINE MONOHYDRATE", "DOXYCYCLINE MONO»")
     // Check first 1-3 words for medication match
-    const words = line.split(/\s+/).filter(w => /^[A-Z]/i.test(w));
+    const words = cleaned.split(/\s+/).filter(w => /^[A-Z]/i.test(w));
     
     // Try matching first 2-3 words (for multi-word drugs)
     if (words.length >= 2) {

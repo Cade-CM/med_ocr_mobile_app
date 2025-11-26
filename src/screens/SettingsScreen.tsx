@@ -29,17 +29,19 @@ const SettingsScreen: React.FC = () => {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [allProfiles, setAllProfiles] = useState<Array<{
-    email: string;
+    userId: string;
     firstName: string;
     lastName: string;
     nickname?: string;
   }>>([]);
-  const [currentEmail, setCurrentEmail] = useState('');
+  const [currentUserId, setCurrentUserId] = useState('');
+  const [isDeveloper, setIsDeveloper] = useState(false);
 
   useEffect(() => {
     loadPreferences();
     loadUserData();
     loadAllProfiles();
+    checkDeveloperMode();
   }, []);
 
   const loadPreferences = async () => {
@@ -50,12 +52,12 @@ const SettingsScreen: React.FC = () => {
   };
 
   const loadUserData = async () => {
-    const savedFirstName = await AsyncStorage.getItem('userFirstName');
-    const savedLastName = await AsyncStorage.getItem('userLastName');
-    const savedEmail = await AsyncStorage.getItem('userEmail');
-    if (savedFirstName) setFirstName(savedFirstName);
-    if (savedLastName) setLastName(savedLastName);
-    if (savedEmail) setCurrentEmail(savedEmail);
+    const profile = await StorageService.getCurrentUserProfile();
+    if (profile) {
+      setFirstName(profile.firstName || '');
+      setLastName(profile.lastName || '');
+      setCurrentUserId(profile.userId || '');
+    }
   };
 
   const loadAllProfiles = async () => {
@@ -63,17 +65,31 @@ const SettingsScreen: React.FC = () => {
     setAllProfiles(profiles);
   };
 
-  const handleSwitchProfile = (email: string) => {
+  const checkDeveloperMode = async () => {
+    try {
+      const profile = await StorageService.getCurrentUserProfile();
+      // Enable developer mode only for specific email
+      if (profile?.email?.toLowerCase() === 'cademontes@me.com') {
+        setIsDeveloper(true);
+        console.log('🔧 Developer mode enabled');
+      }
+    } catch (error) {
+      console.error('Error checking developer mode:', error);
+    }
+  };
+
+  const handleSwitchProfile = (userId: string) => {
+    const profile = allProfiles.find(p => p.userId === userId);
     Alert.alert(
       'Switch Profile',
-      `Switch to ${allProfiles.find(p => p.email === email)?.firstName}'s profile?`,
+      `Switch to ${profile?.firstName}'s profile?`,
       [
         {text: 'Cancel', style: 'cancel'},
         {
           text: 'Switch',
           onPress: async () => {
             try {
-              await StorageService.switchUserProfile(email);
+              await StorageService.switchUserProfile(userId);
               // Reload the app to show new profile's data
               navigation.getParent()?.reset({
                 index: 0,
@@ -109,10 +125,9 @@ const SettingsScreen: React.FC = () => {
           style: 'destructive',
           onPress: async () => {
             try {
+              await StorageService.logoutUser();
               await AsyncStorage.removeItem('isLoggedIn');
-              await AsyncStorage.removeItem('userFirstName');
-              await AsyncStorage.removeItem('userLastName');
-              // Use the parent navigator (CommonActions from @react-navigation/native)
+              // Use the parent navigator
               navigation.getParent()?.reset({
                 index: 0,
                 routes: [{name: 'Login'}],
@@ -147,6 +162,39 @@ const SettingsScreen: React.FC = () => {
           onPress: async () => {
             await StorageService.clearAllData();
             Alert.alert('Success', 'All data has been cleared.');
+          },
+        },
+      ],
+    );
+  };
+
+  const handleClearAllAccounts = () => {
+    Alert.alert(
+      '⚠️ DELETE ALL ACCOUNTS',
+      'This will permanently delete ALL user accounts, profiles, medications, and data from this device. This action CANNOT be undone.\n\nYou will be signed out and returned to the login screen.',
+      [
+        {text: 'Cancel', style: 'cancel'},
+        {
+          text: 'Delete Everything',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await StorageService.clearAllUsersAndData();
+              Alert.alert('All Data Deleted', 'All accounts and data have been permanently deleted.', [
+                {
+                  text: 'OK',
+                  onPress: () => {
+                    // Navigate to login
+                    navigation.getParent()?.reset({
+                      index: 0,
+                      routes: [{name: 'Login'}],
+                    });
+                  },
+                },
+              ]);
+            } catch (error) {
+              Alert.alert('Error', 'Failed to delete all data. Please try again.');
+            }
           },
         },
       ],
@@ -208,44 +256,38 @@ const SettingsScreen: React.FC = () => {
             
             {allProfiles.map((profile) => (
               <TouchableOpacity
-                key={profile.email}
+                key={profile.userId}
                 style={[
                   styles.profileRow,
-                  profile.email === currentEmail && styles.currentProfileRow,
+                  profile.userId === currentUserId && styles.currentProfileRow,
                 ]}
-                onPress={() => handleSwitchProfile(profile.email)}
-                disabled={profile.email === currentEmail}
+                onPress={() => handleSwitchProfile(profile.userId)}
+                disabled={profile.userId === currentUserId}
               >
                 <View style={styles.profileIcon}>
                   <Icon 
                     name="person" 
                     size={24} 
-                    color={profile.email === currentEmail ? 'white' : '#007AFF'} 
+                    color={profile.userId === currentUserId ? 'white' : '#007AFF'} 
                   />
                 </View>
                 <View style={styles.profileInfo}>
                   <Text style={[
                     styles.profileName,
-                    profile.email === currentEmail && styles.currentProfileText,
+                    profile.userId === currentUserId && styles.currentProfileText,
                   ]}>
                     {profile.firstName} {profile.lastName}
                   </Text>
                   {profile.nickname && (
                     <Text style={[
                       styles.profileNickname,
-                      profile.email === currentEmail && styles.currentProfileSubtext,
+                      profile.userId === currentUserId && styles.currentProfileSubtext,
                     ]}>
                       "{profile.nickname}"
                     </Text>
                   )}
-                  <Text style={[
-                    styles.profileEmail,
-                    profile.email === currentEmail && styles.currentProfileSubtext,
-                  ]}>
-                    {profile.email}
-                  </Text>
                 </View>
-                {profile.email === currentEmail && (
+                {profile.userId === currentUserId && (
                   <View style={styles.currentBadge}>
                     <Text style={styles.currentBadgeText}>Current</Text>
                   </View>
@@ -254,101 +296,6 @@ const SettingsScreen: React.FC = () => {
             ))}
           </View>
         )}
-
-        {/* Schedule Preferences */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Daily Schedule</Text>
-          
-          <View style={styles.settingRow}>
-            <View style={styles.settingLabel}>
-              <Icon name="wb-sunny" size={24} color="#FF9500" />
-              <Text style={styles.settingText}>Wake Time</Text>
-            </View>
-            <TextInput
-              style={styles.timeInput}
-              value={preferences.wakeTime}
-              onChangeText={(text) => updatePreference('wakeTime', text)}
-              placeholder="07:00"
-              placeholderTextColor="#999"
-            />
-          </View>
-
-          <View style={styles.settingRow}>
-            <View style={styles.settingLabel}>
-              <Icon name="nightlight" size={24} color="#5E35B1" />
-              <Text style={styles.settingText}>Sleep Time</Text>
-            </View>
-            <TextInput
-              style={styles.timeInput}
-              value={preferences.sleepTime}
-              onChangeText={(text) => updatePreference('sleepTime', text)}
-              placeholder="22:00"
-              placeholderTextColor="#999"
-            />
-          </View>
-        </View>
-
-        {/* Meal Times */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Meal Times (Optional)</Text>
-          
-          <View style={styles.settingRow}>
-            <View style={styles.settingLabel}>
-              <Icon name="free-breakfast" size={24} color="#FF6B6B" />
-              <Text style={styles.settingText}>Breakfast</Text>
-            </View>
-            <TextInput
-              style={styles.timeInput}
-              value={preferences.mealTimes?.breakfast || ''}
-              onChangeText={(text) =>
-                updatePreference('mealTimes', {
-                  ...(preferences.mealTimes || {}),
-                  breakfast: text,
-                })
-              }
-              placeholder="08:00"
-              placeholderTextColor="#999"
-            />
-          </View>
-
-          <View style={styles.settingRow}>
-            <View style={styles.settingLabel}>
-              <Icon name="lunch-dining" size={24} color="#4ECDC4" />
-              <Text style={styles.settingText}>Lunch</Text>
-            </View>
-            <TextInput
-              style={styles.timeInput}
-              value={preferences.mealTimes?.lunch || ''}
-              onChangeText={(text) =>
-                updatePreference('mealTimes', {
-                  ...(preferences.mealTimes || {}),
-                  lunch: text,
-                })
-              }
-              placeholder="12:00"
-              placeholderTextColor="#999"
-            />
-          </View>
-
-          <View style={styles.settingRow}>
-            <View style={styles.settingLabel}>
-              <Icon name="dinner-dining" size={24} color="#FFB347" />
-              <Text style={styles.settingText}>Dinner</Text>
-            </View>
-            <TextInput
-              style={styles.timeInput}
-              value={preferences.mealTimes?.dinner || ''}
-              onChangeText={(text) =>
-                updatePreference('mealTimes', {
-                  ...(preferences.mealTimes || {}),
-                  dinner: text,
-                })
-              }
-              placeholder="18:00"
-              placeholderTextColor="#999"
-            />
-          </View>
-        </View>
 
         {/* Notification Settings */}
         <View style={styles.section}>
@@ -386,6 +333,49 @@ const SettingsScreen: React.FC = () => {
           </View>
         </View>
 
+        {/* RFID Settings */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>RFID Confirmation</Text>
+          
+          <View style={styles.settingRow}>
+            <View style={styles.settingLabel}>
+              <Icon name="nfc" size={24} color="#007AFF" />
+              <Text style={styles.settingText}>Use RFID Confirmation</Text>
+            </View>
+            <Switch
+              value={preferences.useRFIDConfirmation || false}
+              onValueChange={(value) =>
+                updatePreference('useRFIDConfirmation', value)
+              }
+              trackColor={{false: '#D1D1D6', true: '#34C759'}}
+              thumbColor="white"
+            />
+          </View>
+
+          <View style={styles.settingRow}>
+            <View style={styles.settingLabel}>
+              <Icon name="access-time" size={24} color="#4ECDC4" />
+              <Text style={styles.settingText}>On-Time Window (minutes)</Text>
+            </View>
+            <TextInput
+              style={styles.timeInput}
+              value={preferences.confirmationWindowMinutes?.toString() || '30'}
+              onChangeText={(text) => {
+                const minutes = parseInt(text) || 30;
+                updatePreference('confirmationWindowMinutes', minutes);
+              }}
+              placeholder="30"
+              placeholderTextColor="#999"
+              keyboardType="number-pad"
+            />
+          </View>
+
+          <Text style={styles.settingDescription}>
+            When RFID is enabled, you'll need to scan your medication's RFID tag to confirm doses. 
+            The on-time window determines how many minutes before/after the scheduled time counts as "on-time".
+          </Text>
+        </View>
+
         {/* Save Button */}
         {hasChanges && (
           <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
@@ -404,9 +394,31 @@ const SettingsScreen: React.FC = () => {
             style={styles.dangerButton}
             onPress={handleClearData}>
             <Icon name="delete-forever" size={24} color="#FF3B30" />
-            <Text style={styles.dangerButtonText}>Clear All Data</Text>
+            <Text style={styles.dangerButtonText}>Clear My Data</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Developer Tools - Only visible to developer */}
+        {isDeveloper && (
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, {color: '#8B0000'}]}>
+              🔧 Developer Tools
+            </Text>
+            <Text style={styles.developerNote}>
+              These tools are only visible to the developer account
+            </Text>
+            
+            <TouchableOpacity
+              style={[styles.dangerButton, {backgroundColor: '#8B0000', marginTop: 10}]}
+              onPress={handleClearAllAccounts}>
+              <Icon name="warning" size={24} color="white" />
+              <Text style={[styles.dangerButtonText, {color: 'white'}]}>Delete All Accounts</Text>
+            </TouchableOpacity>
+            <Text style={styles.dangerWarning}>
+              ⚠️ This will permanently delete ALL user accounts and data from this device
+            </Text>
+          </View>
+        )}
 
         {/* App Info */}
         <View style={styles.infoSection}>
@@ -529,6 +541,13 @@ const styles = StyleSheet.create({
     color: '#333',
     marginLeft: 12,
   },
+  settingDescription: {
+    fontSize: 13,
+    color: '#666',
+    lineHeight: 18,
+    marginTop: 10,
+    paddingHorizontal: 5,
+  },
   timeInput: {
     backgroundColor: '#F5F5F5',
     paddingHorizontal: 15,
@@ -609,6 +628,23 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     marginLeft: 8,
+  },
+  dangerWarning: {
+    fontSize: 12,
+    color: '#FF3B30',
+    textAlign: 'center',
+    marginTop: 8,
+    fontStyle: 'italic',
+  },
+  developerNote: {
+    fontSize: 13,
+    color: '#666',
+    fontStyle: 'italic',
+    marginBottom: 10,
+    textAlign: 'center',
+    backgroundColor: '#FFF9E6',
+    padding: 10,
+    borderRadius: 5,
   },
   infoSection: {
     alignItems: 'center',

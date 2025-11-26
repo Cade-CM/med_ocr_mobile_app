@@ -35,38 +35,40 @@ const ProfileSetupScreen: React.FC<Props> = ({ navigation, route }) => {
       Alert.alert('Error', 'Please fill in all required fields');
       return;
     }
-
     const ageNum = parseInt(age);
     if (isNaN(ageNum) || ageNum < 1 || ageNum > 120) {
       Alert.alert('Error', 'Please enter a valid age');
       return;
     }
-
     setIsLoading(true);
-
     try {
       const trimmedFirst = firstName.trim();
       const trimmedLast = lastName.trim();
       const trimmedNickname = nickname.trim();
-      
-      // Save profile information for current user
-      await AsyncStorage.setItem('userFirstName', trimmedFirst);
-      await AsyncStorage.setItem('userLastName', trimmedLast);
-      await AsyncStorage.setItem('userNickname', trimmedNickname);
-      await AsyncStorage.setItem('userAge', age);
-      await AsyncStorage.setItem('userGender', gender);
-      
-      // Also save with email prefix for profile switching
-      await AsyncStorage.setItem(`userFirstName_${email}`, trimmedFirst);
-      await AsyncStorage.setItem(`userLastName_${email}`, trimmedLast);
-      await AsyncStorage.setItem(`userNickname_${email}`, trimmedNickname);
-      await AsyncStorage.setItem(`userAge_${email}`, age);
-      await AsyncStorage.setItem(`userGender_${email}`, gender);
-
+        // Retry logic for user_key
+        let user_key = await AsyncStorage.getItem('user_key');
+        let retries = 0;
+        while (!user_key && retries < 5) {
+          await new Promise(res => setTimeout(res, 200));
+          user_key = await AsyncStorage.getItem('user_key');
+          retries++;
+        }
+        if (!user_key) {
+          throw new Error('No user logged in');
+        }
+      // Update profile with de-identified user ID system
+      await StorageService.updateUserProfile({
+        user_key,
+        firstName: trimmedFirst,
+        lastName: trimmedLast,
+        nickname: trimmedNickname,
+        age,
+        gender,
+        email, // Store email in profile (but not in medication keys)
+      });
       // Add patient name to local database (for OCR validation)
       await StorageService.savePatientName(trimmedFirst.toUpperCase(), trimmedLast.toUpperCase());
-
-      console.log('Profile setup complete');
+      console.log('Profile setup complete with de-identified user ID');
       navigation.replace('Home');
     } catch (error) {
       console.error('Error during profile setup:', error);

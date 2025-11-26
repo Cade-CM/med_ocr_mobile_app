@@ -23,6 +23,15 @@ const DashboardScreen: React.FC = () => {
     missedDoses: 0,
     onTimeDoses: 0,
   });
+  // Move all safe array guards to the top of the component
+  // If missedDoses is a number, use it directly. If it's an array, use its length. Otherwise, fallback to 0.
+  let safeMissedDoses = 0;
+  if (Array.isArray(stats?.missedDoses)) {
+    safeMissedDoses = stats.missedDoses.length;
+  } else if (typeof stats?.missedDoses === 'number') {
+    safeMissedDoses = stats.missedDoses;
+  }
+  const safeRecords = Array.isArray(stats?.records) ? stats.records : [];
   const [refreshing, setRefreshing] = useState(false);
 
   const loadStats = async () => {
@@ -66,10 +75,8 @@ const DashboardScreen: React.FC = () => {
         {/* Adherence Circle */}
         <View style={styles.adherenceCircleContainer}>
           <View
-            style={[
-              styles.adherenceCircle,
-              {borderColor: adherenceColor},
-            ]}>
+            style={[styles.adherenceCircle, {borderColor: adherenceColor}]}
+          >
             <Text style={[styles.adherencePercentage, {color: adherenceColor}]}>
               {stats.adherencePercentage.toFixed(0)}%
             </Text>
@@ -107,13 +114,13 @@ const DashboardScreen: React.FC = () => {
         </View>
 
         {/* Missed Doses */}
-        {stats.missedDoses > 0 && (
+        {safeMissedDoses > 0 && (
           <View style={styles.warningCard}>
             <Icon name="warning" size={24} color="#FF9500" />
             <View style={styles.warningText}>
               <Text style={styles.warningTitle}>Missed Doses</Text>
               <Text style={styles.warningDescription}>
-                You've missed {stats.missedDoses} doses. Try setting additional
+                You've missed {safeMissedDoses} doses. Try setting additional
                 reminders to improve adherence.
               </Text>
             </View>

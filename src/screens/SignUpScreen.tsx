@@ -17,18 +17,9 @@ import { RootStackParamList } from '@types';
 import { MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
-import { useEffect } from 'react';
+import { StorageService } from '@services/StorageService';
+import { signupUser, UserResponse } from '@services/BackendService';
 
-// Conditionally import Google Sign-In only for dev builds
-let GoogleSignin: any = null;
-let statusCodes: any = null;
-try {
-  const googleSignin = require('@react-native-google-signin/google-signin');
-  GoogleSignin = googleSignin.GoogleSignin;
-  statusCodes = googleSignin.statusCodes;
-} catch (e) {
-  console.log('Google Sign-In not available in Expo Go');
-}
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SignUp'>;
 
@@ -40,115 +31,59 @@ const SignUpScreen: React.FC<Props> = ({ navigation }) => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  useEffect(() => {
-    // Configure Google Sign-In only if available
-    if (GoogleSignin) {
-      GoogleSignin.configure({
-        webClientId: '954535377514-qhvgvhd911rsqfgs71a1advofu92iaso.apps.googleusercontent.com',
-        offlineAccess: true,
-      });
-    }
-  }, []);
 
-  const validateEmail = (email: string) => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
-  };
+    // Google Sign-In logic temporarily disabled due to syntax errors
+    // const handleGoogleSignIn = async () => {
+    //   setIsLoading(true);
+    //   try {
+    //     await GoogleSignin.hasPlayServices();
+    //     const userInfo = await GoogleSignin.signIn();
+    //     // Extract user data
+    //     const user = userInfo.data?.user;
+    //     if (!user) {
+    //       throw new Error('No user data received');
+    //     }
+    //     // Save authentication info
+    //     await AsyncStorage.setItem('isLoggedIn', 'true');
+    //     await AsyncStorage.setItem('authMethod', 'google');
+    //     // Register user with de-identified ID (will complete profile next)
+    //     const userId = await StorageService.registerUser(user.email, '', '');
+    //     console.log('Google Sign-In successful, user ID generated:', userId);
+    //     // Navigate to profile setup to collect full name and demographics
+    //     navigation.replace('ProfileSetup', { email: user.email, authMethod: 'google' });
+    //   } catch (error: any) {
+    //     console.error('Google Sign-In error:', error);
+    //     if (error.code === statusCodes.SIGN_IN_CANCELLED) {
+    //       Alert.alert('Cancelled', 'Google Sign-In was cancelled');
+    //     } else if (error.code === statusCodes.IN_PROGRESS) {
+    //       Alert.alert('In Progress', 'Sign-In is already in progress');
+    //     } else if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+    //       Alert.alert('Error', 'Google Play Services not available');
+    //     } else {
+    //       Alert.alert('Error', 'Failed to sign in with Google. Please try again.');
+    //     }
+    //   }
+    //   setIsLoading(false);
+    // };
 
   const handleSignUp = async () => {
-    // Validate inputs
-    if (!email.trim() || !password.trim() || !confirmPassword.trim()) {
-      Alert.alert('Error', 'Please fill in all fields');
-      return;
-    }
-
-    if (!validateEmail(email)) {
-      Alert.alert('Error', 'Please enter a valid email address');
-      return;
-    }
-
-    if (password.length < 6) {
-      Alert.alert('Error', 'Password must be at least 6 characters');
-      return;
-    }
-
-    if (password !== confirmPassword) {
-      Alert.alert('Error', 'Passwords do not match');
-      return;
-    }
-
     setIsLoading(true);
-
     try {
-      // Simulate API call (replace with actual authentication)
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
       const trimmedEmail = email.trim().toLowerCase();
-      
-      // TODO: Replace with actual sign-up API call
-      // For now, save to AsyncStorage
-      await AsyncStorage.setItem('userEmail', trimmedEmail);
+      // Generate a de-identified user_key
+      const user_key = `USR_${Date.now()}_${Math.random().toString(36).substr(2, 12)}`;
+      const request = { email: trimmedEmail, display_name: '', user_key };
+      const user: UserResponse = await signupUser(request);
       await AsyncStorage.setItem('userPassword', password);
       await AsyncStorage.setItem('isLoggedIn', 'true');
       await AsyncStorage.setItem('authMethod', 'email');
-
-      console.log('Sign up successful, navigating to profile setup');
-      
-      // Navigate to profile setup
+      await AsyncStorage.setItem('user_key', user.user_key);
+      await AsyncStorage.setItem('user_id', user.id.toString());
+      console.log('Sign up successful, user:', user);
       navigation.replace('ProfileSetup', { email: trimmedEmail, authMethod: 'email' });
     } catch (error) {
       console.error('Error during sign up:', error);
       Alert.alert('Error', 'Failed to create account. Please try again.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleGoogleSignIn = async () => {
-    if (!GoogleSignin) {
-      Alert.alert(
-        'Not Available in Expo Go',
-        'Google Sign-In requires a development build. Please use email/password for now.'
-      );
-      return;
-    }
-    
-    setIsLoading(true);
-    try {
-      await GoogleSignin.hasPlayServices();
-      const userInfo = await GoogleSignin.signIn();
-      
-      // Extract user data
-      const user = userInfo.data?.user;
-      if (!user) {
-        throw new Error('No user data received');
-      }
-      
-      // Save user info to AsyncStorage
-      await AsyncStorage.setItem('userEmail', user.email);
-      await AsyncStorage.setItem('isLoggedIn', 'true');
-      await AsyncStorage.setItem('authMethod', 'google');
-
-      console.log('Google Sign-In successful, navigating to profile setup');
-      
-      // Navigate to profile setup
-      navigation.replace('ProfileSetup', { email: user.email, authMethod: 'google' });
-    } catch (error: any) {
-      console.error('Google Sign-In error:', error);
-      
-      if (error.code === statusCodes.SIGN_IN_CANCELLED) {
-        // User cancelled the login flow
-        Alert.alert('Cancelled', 'Google Sign-In was cancelled');
-      } else if (error.code === statusCodes.IN_PROGRESS) {
-        // Sign in is in progress
-        Alert.alert('In Progress', 'Sign-In is already in progress');
-      } else if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
-        // Play services not available or outdated
-        Alert.alert('Error', 'Google Play Services not available');
-      } else {
-        // Some other error
-        Alert.alert('Error', 'Failed to sign in with Google. Please try again.');
-      }
     } finally {
       setIsLoading(false);
     }
@@ -259,21 +194,18 @@ const SignUpScreen: React.FC<Props> = ({ navigation }) => {
               onPress={handleSignUp}
               disabled={isLoading}
             >
-              {isLoading ? (
-                <ActivityIndicator color="white" />
-              ) : (
-                <Text style={styles.signUpButtonText}>Sign Up</Text>
-              )}
+              <Text style={styles.signUpButtonText}>
+                {isLoading ? 'Creating Account...' : 'Sign Up'}
+              </Text>
             </TouchableOpacity>
 
-            {/* Divider */}
-            <View style={styles.dividerContainer}>
+            {/* Divider and Social Sign-In */}
+            {/* <View style={styles.dividerContainer}>
               <View style={styles.divider} />
-              <Text style={styles.dividerText}>Or Sign Up With</Text>
+              <Text style={styles.dividerText}>or sign up with</Text>
               <View style={styles.divider} />
             </View>
 
-            {/* Social Sign-In Buttons */}
             <View style={styles.socialButtonsContainer}>
               <TouchableOpacity
                 style={styles.socialButton}
@@ -291,10 +223,10 @@ const SignUpScreen: React.FC<Props> = ({ navigation }) => {
                 disabled={isLoading}
               >
                 <View style={[styles.socialCircle, styles.appleCircle]}>
-                  <MaterialIcons name="apple" size={24} color="white" />
+                  <Text style={styles.googleText}>A</Text>
                 </View>
               </TouchableOpacity>
-            </View>
+            </View> */}
 
             {/* Toggle to Sign In */}
             <View style={styles.toggleContainer}>

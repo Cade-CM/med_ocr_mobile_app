@@ -11,30 +11,22 @@ import {
 import {useFocusEffect} from '@react-navigation/native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList, Medication} from '@types';
-import {StorageService} from '@services/StorageService';
 import {SchedulingService} from '@services/SchedulingService';
 import {MaterialIcons as Icon} from '@expo/vector-icons';
+import { useAppData } from '../context/AppDataContext';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
 
 const HomeScreen: React.FC<Props> = ({navigation}) => {
-  const [medications, setMedications] = useState<Medication[]>([]);
+  const { medications, refreshMedications } = useAppData();
   const [refreshing, setRefreshing] = useState(false);
 
-  const loadMedications = async () => {
-    const meds = await StorageService.getMedications();
-    setMedications(meds);
-  };
-
-  useFocusEffect(
-    useCallback(() => {
-      loadMedications();
-    }, []),
-  );
+  // Always have a real array, even if something goes weird
+  const medList: any[] = Array.isArray(medications) ? medications : [];
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadMedications();
+    await refreshMedications();
     setRefreshing(false);
   };
 
@@ -42,96 +34,88 @@ const HomeScreen: React.FC<Props> = ({navigation}) => {
     navigation.navigate('LabelCapture');
   };
 
-  const handleEditMedication = (medication: Medication) => {
-    console.log('Edit medication pressed:', medication.drugName);
-    console.log('Navigation params:', {
-      imageUri: medication.capturedImageUri || '',
-      rawOcrText: medication.rawOcrText || '',
-      editMode: true,
-      existingMedication: medication,
-    });
-    
-    navigation.navigate('MedicationReview', {
-      imageUri: medication.capturedImageUri || '',
-      rawOcrText: medication.rawOcrText || '',
-      parsedData: undefined,
-      editMode: true,
-      existingMedication: medication,
+  const handleMedicationPress = (medication: any) => {
+    navigation.navigate('MedicationDetails', {
+      medication,
     });
   };
 
-  const handleDeleteMedication = (medication: Medication) => {
-    console.log('Delete medication pressed:', medication.drugName);
-    
-    Alert.alert(
-      'Delete Medication',
-      `Are you sure you want to delete ${medication.drugName}?`,
-      [
-        {text: 'Cancel', style: 'cancel'},
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            console.log('Deleting medication:', medication.id);
-            await StorageService.deleteMedication(medication.id);
-            await loadMedications();
-            console.log('Medication deleted successfully');
-          },
-        },
-      ],
-    );
-  };
-
-  const renderMedicationCard = ({item}: {item: Medication}) => {
+  const renderMedicationCard = ({ item }: { item: any }) => {
+    // Normalize fields for both backend and app-shaped objects
+    const raw = item as any;
+    const name = item.drugName ?? raw.drug_name ?? 'Unknown med';
+    const strength = item.strength ?? raw.strength ?? '';
+    const dosage = item.dosage ?? raw.dosage ?? raw.qty_text ?? '';
+    const frequency = item.frequency ?? raw.frequency ?? raw.frequency_text ?? '';
+    const instructions = item.instructions ?? raw.instructions ?? raw.instruction ?? '';
+    const rfidTagId = item.rfidTagId ?? raw.rfid_tag_id ?? '';
+    const quantity = item.quantity ?? raw.quantity ?? raw.qty ?? raw.qty_text ?? '';
+    const refills = item.refills ?? raw.refills ?? raw.refills_text ?? '';
+    const isActive = item.isActive ?? raw.isActive ?? raw.is_active ?? '';
+    const createdAt = item.createdAt ?? raw.createdAt ?? raw.created_at ?? '';
+    const updatedAt = item.updatedAt ?? raw.updatedAt ?? raw.updated_at ?? '';
+    const medicationKey = item.medication_key ?? raw.medication_key ?? '';
+    const userKey = item.user_key ?? raw.user_key ?? '';
     const nextDose = SchedulingService.getNextDoseTime(item);
-    
-    return (
-      <View style={styles.medicationCard}>
-        <View style={styles.cardHeader}>
-          <View style={styles.medicationIcon}>
-            <Icon name="medication" size={30} color="#007AFF" />
-          </View>
-          <View style={styles.medicationInfo}>
-            <Text style={styles.medicationName}>{item.drugName}</Text>
-            <Text style={styles.medicationDosage}>{item.dosage}</Text>
-            <Text style={styles.medicationFrequency}>{item.frequency}</Text>
-          </View>
-          <View style={styles.actionButtons}>
-            <TouchableOpacity
-              onPress={() => handleEditMedication(item)}
-              style={styles.editButton}
-              activeOpacity={0.7}
-              hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
-            >
-              <Icon name="edit" size={22} color="#007AFF" />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => handleDeleteMedication(item)}
-              style={styles.deleteButton}
-              activeOpacity={0.7}
-              hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
-            >
-              <Icon name="delete-outline" size={22} color="#FF3B30" />
-            </TouchableOpacity>
-          </View>
-        </View>
-        
-        {nextDose && (
-          <View style={styles.nextDoseContainer}>
-            <Icon name="access-time" size={18} color="#666" />
-            <Text style={styles.nextDoseText}>
-              Next dose: {SchedulingService.formatTime(nextDose)}
-            </Text>
-          </View>
-        )}
 
-        <View style={styles.reminderTimesContainer}>
-          <Text style={styles.reminderTimesLabel}>Daily reminders:</Text>
-          <Text style={styles.reminderTimesText}>
-            {SchedulingService.formatTimeList(item.reminderTimes)}
-          </Text>
+    return (
+      <TouchableOpacity
+        style={styles.medicationCard}
+        onPress={() => handleMedicationPress(item)}
+        activeOpacity={0.7}
+      >
+        <View style={styles.medicationIcon}>
+          <Icon name="medication" size={32} color="#007AFF" />
         </View>
-      </View>
+        <View style={styles.medicationInfo}>
+          <Text style={styles.medicationName}>{name}</Text>
+          {strength ? (
+            <Text style={{ fontSize: 14, color: '#666', marginBottom: 2 }}>Strength: {strength}</Text>
+          ) : null}
+          {dosage ? (
+            <Text style={{ fontSize: 14, color: '#666', marginBottom: 2 }}>Dosage: {dosage}</Text>
+          ) : null}
+          {frequency ? (
+            <Text style={{ fontSize: 14, color: '#666', marginBottom: 2 }}>Frequency: {frequency}</Text>
+          ) : null}
+          {instructions ? (
+            <Text style={{ fontSize: 13, color: '#888', marginBottom: 2 }}>Instructions: {instructions}</Text>
+          ) : null}
+          {quantity ? (
+            <Text style={{ fontSize: 13, color: '#888', marginBottom: 2 }}>Quantity: {quantity}</Text>
+          ) : null}
+          {refills ? (
+            <Text style={{ fontSize: 13, color: '#888', marginBottom: 2 }}>Refills: {refills}</Text>
+          ) : null}
+          {isActive !== '' ? (
+            <Text style={{ fontSize: 13, color: '#888', marginBottom: 2 }}>Active: {String(isActive)}</Text>
+          ) : null}
+          {createdAt ? (
+            <Text style={{ fontSize: 12, color: '#888', marginBottom: 2 }}>Created: {String(createdAt)}</Text>
+          ) : null}
+          {updatedAt ? (
+            <Text style={{ fontSize: 12, color: '#888', marginBottom: 2 }}>Updated: {String(updatedAt)}</Text>
+          ) : null}
+          {medicationKey ? (
+            <Text style={{ fontSize: 12, color: '#888', fontFamily: 'monospace', marginBottom: 2 }}>MedKey: {String(medicationKey)}</Text>
+          ) : null}
+          {userKey ? (
+            <Text style={{ fontSize: 12, color: '#888', fontFamily: 'monospace', marginBottom: 2 }}>UserKey: {String(userKey)}</Text>
+          ) : null}
+          {rfidTagId ? (
+            <Text style={{ fontSize: 12, color: '#34C759', fontFamily: 'monospace', marginBottom: 2 }}>RFID: {rfidTagId.substring(0, 16)}...</Text>
+          ) : null}
+          {nextDose && (
+            <View style={styles.nextDoseContainer}>
+              <Icon name="access-time" size={16} color="#666" />
+              <Text style={styles.nextDoseText}>
+                Next: {SchedulingService.formatTime(nextDose)}
+              </Text>
+            </View>
+          )}
+        </View>
+        <Icon name="chevron-right" size={24} color="#CCC" />
+      </TouchableOpacity>
     );
   };
 
@@ -148,19 +132,17 @@ const HomeScreen: React.FC<Props> = ({navigation}) => {
   return (
     <View style={styles.container}>
       <FlatList
-        data={medications}
+        data={medList}
         renderItem={renderMedicationCard}
-        keyExtractor={item => item.id}
+        keyExtractor={(item: any) => String(item.id ?? item.medication_key ?? Math.random())}
         contentContainerStyle={styles.listContent}
         ListEmptyComponent={renderEmptyState}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       />
-      
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={handleAddMedication}>
+
+      <TouchableOpacity style={styles.fab} onPress={handleAddMedication}>
         <Icon name="add" size={30} color="white" />
       </TouchableOpacity>
     </View>
@@ -177,95 +159,44 @@ const styles = StyleSheet.create({
     paddingBottom: 80,
   },
   medicationCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: 'white',
     borderRadius: 12,
     padding: 15,
-    marginBottom: 15,
+    marginBottom: 12,
     shadowColor: '#000',
     shadowOffset: {width: 0, height: 2},
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
   },
-  cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 12,
-  },
   medicationIcon: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: '#E3F2FD',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginRight: 15,
   },
   medicationInfo: {
     flex: 1,
   },
   medicationName: {
     fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 4,
-  },
-  medicationDosage: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 2,
-  },
-  medicationFrequency: {
-    fontSize: 14,
-    color: '#007AFF',
     fontWeight: '600',
-  },
-  actionButtons: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  editButton: {
-    padding: 8,
-    minWidth: 44,
-    minHeight: 44,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  deleteButton: {
-    padding: 8,
-    minWidth: 44,
-    minHeight: 44,
-    justifyContent: 'center',
-    alignItems: 'center',
+    color: '#333',
+    marginBottom: 6,
   },
   nextDoseContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFF8E1',
-    padding: 10,
-    borderRadius: 8,
-    marginBottom: 8,
   },
   nextDoseText: {
     fontSize: 14,
     color: '#666',
-    marginLeft: 8,
-    fontWeight: '600',
-  },
-  reminderTimesContainer: {
-    backgroundColor: '#F5F5F5',
-    padding: 10,
-    borderRadius: 8,
-  },
-  reminderTimesLabel: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 4,
-  },
-  reminderTimesText: {
-    fontSize: 14,
-    color: '#333',
-    fontWeight: '500',
+    marginLeft: 6,
   },
   emptyState: {
     alignItems: 'center',

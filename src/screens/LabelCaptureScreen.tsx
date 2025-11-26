@@ -198,13 +198,12 @@ const LabelCaptureScreen: React.FC<Props> = ({navigation}) => {
 
       // Validate patient name with fuzzy matching
       if (parsedData.patientName) {
-        const userFirstName = await AsyncStorage.getItem('userFirstName');
-        const userLastName = await AsyncStorage.getItem('userLastName');
+        const profile = await StorageService.getUserProfile();
         
-        if (userFirstName && userLastName) {
+        if (profile?.firstName && profile?.lastName) {
           const extractedName = parsedData.patientName.trim().toLowerCase();
-          const expectedFirstName = userFirstName.toLowerCase();
-          const expectedLastName = userLastName.toLowerCase();
+          const expectedFirstName = profile.firstName.toLowerCase();
+          const expectedLastName = profile.lastName.toLowerCase();
           
           // Helper function for fuzzy string matching
           const fuzzyMatch = (str1: string, str2: string): number => {
@@ -258,14 +257,14 @@ const LabelCaptureScreen: React.FC<Props> = ({navigation}) => {
             }
           }
           
-          console.log(`🔍 Name validation: "${parsedData.patientName}" vs "${userFirstName} ${userLastName}"`);
+          console.log(`🔍 Name validation: "${parsedData.patientName}" vs "${profile.firstName} ${profile.lastName}"`);
           console.log(`   First name match: ${firstNameMatch}, Last name match: ${lastNameMatch}`);
           
           if (!firstNameMatch || !lastNameMatch) {
             setIsProcessing(false);
             Alert.alert(
               'Name Mismatch',
-              `The patient name "${parsedData.patientName}" does not match your account name "${userFirstName} ${userLastName}".\n\nPrescriptions can only be scanned for your own account. Please try again.`,
+              `The patient name "${parsedData.patientName}" does not match your account name "${profile.firstName} ${profile.lastName}".\n\nPrescriptions can only be scanned for your own account. Please try again.`,
               [{text: 'OK', style: 'default'}],
             );
             return;

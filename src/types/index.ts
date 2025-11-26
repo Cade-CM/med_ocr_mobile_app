@@ -7,6 +7,8 @@
  */
 export interface Medication {
   id: string;
+  user_key: string;
+  medication_key?: string;
   patientName?: string;
   drugName: string;
   strength?: string;
@@ -26,6 +28,8 @@ export interface Medication {
   endDate?: Date;
   capturedImageUri?: string;
   rawOcrText?: string;
+  rfidTagId?: string; // RFID tag linked to this medication
+  requiresRFIDConfirmation?: boolean; // Whether RFID scan is required
 }
 
 /**
@@ -57,7 +61,11 @@ export interface AdherenceRecord {
   medicationId: string;
   scheduledTime: Date;
   takenTime?: Date;
+  confirmedTime?: Date; // When user confirmed they took it
   status: 'taken' | 'missed' | 'skipped' | 'pending';
+  confirmationMethod?: 'rfid' | 'manual' | 'skipped'; // How it was confirmed
+  rfidTagId?: string; // RFID tag scanned for confirmation
+  isOnTime?: boolean; // Within acceptable time window
   lateness?: number; // in minutes
   notes?: string;
 }
@@ -81,6 +89,8 @@ export interface UserPreferences {
   reminderAdvanceMinutes?: number;
   theme?: 'light' | 'dark' | 'auto';
   language?: string;
+  useRFIDConfirmation?: boolean; // Enable RFID confirmation mode
+  confirmationWindowMinutes?: number; // Time window for "on-time" (default: 30)
 }
 
 /**
@@ -128,5 +138,20 @@ export type RootStackParamList = {
   MedicationSchedule: {
     medication: Omit<Medication, 'reminderTimes'>;
     editMode?: boolean;
+  };
+  MedicationDetails: {
+    medication: Medication;
+  };
+  LinkRFID: {
+    medication: Medication;
+  };
+  ScheduleCalendar: undefined;
+  ScheduleSettings: undefined;
+  MedicationConfirmation: {
+    medicationId: string;
+    scheduledTime: Date;
+  };
+  AdherenceHistory: {
+    medicationId: string;
   };
 };

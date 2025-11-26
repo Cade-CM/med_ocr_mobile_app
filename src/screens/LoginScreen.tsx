@@ -77,20 +77,24 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
       // Simulate API call (replace with actual authentication)
       await new Promise(resolve => setTimeout(resolve, 1000));
 
-      // TODO: Replace with actual authentication logic
-      // For now, we'll use a simple mock authentication
-      const savedEmail = await AsyncStorage.getItem('userEmail');
+      const trimmedEmail = email.trim().toLowerCase();
+      
+      // TODO: Replace with actual authentication API
+      // For now, verify credentials with AsyncStorage
       const savedPassword = await AsyncStorage.getItem('userPassword');
 
-      if (savedEmail === email.trim().toLowerCase() && savedPassword === password) {
-        // Load user data
-        const savedFirstName = await AsyncStorage.getItem('userFirstName');
-        const savedLastName = await AsyncStorage.getItem('userLastName');
-
-        await AsyncStorage.setItem('isLoggedIn', 'true');
+      if (savedPassword === password) {
+        // Login using de-identified user ID system
+        const success = await StorageService.loginUser(trimmedEmail);
         
-        console.log('Login successful');
-        navigation.replace('Home');
+        if (success) {
+          await AsyncStorage.setItem('isLoggedIn', 'true');
+          
+          console.log('Login successful with de-identified user ID');
+          navigation.replace('Home');
+        } else {
+          Alert.alert('Error', 'User not found. Please sign up first.');
+        }
       } else {
         Alert.alert('Error', 'Invalid email or password');
       }
@@ -150,22 +154,25 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
         throw new Error('No user data received');
       }
       
-      // Save user info to AsyncStorage
-      await AsyncStorage.setItem('userEmail', user.email);
-      await AsyncStorage.setItem('isLoggedIn', 'true');
-      await AsyncStorage.setItem('authMethod', 'google');
-
-      // Check if user has completed profile setup
-      const firstName = await AsyncStorage.getItem('userFirstName');
+      // Check if user exists in de-identified system
+      const userId = await StorageService.getUserIdFromEmail(user.email);
       
-      if (!firstName) {
-        // New user, navigate to profile setup
-        console.log('New Google user, navigating to profile setup');
-        navigation.replace('ProfileSetup', { email: user.email, authMethod: 'google' });
-      } else {
-        // Existing user, go to home
+      if (userId) {
+        // Existing user, login with de-identified ID
+        await StorageService.loginUser(user.email);
+        await AsyncStorage.setItem('isLoggedIn', 'true');
+        await AsyncStorage.setItem('authMethod', 'google');
+        
         console.log('Existing Google user, navigating to home');
         navigation.replace('Home');
+      } else {
+        // New user, need to register and complete profile
+        await StorageService.registerUser(user.email, '', '');
+        await AsyncStorage.setItem('isLoggedIn', 'true');
+        await AsyncStorage.setItem('authMethod', 'google');
+        
+        console.log('New Google user, navigating to profile setup');
+        navigation.replace('ProfileSetup', { email: user.email, authMethod: 'google' });
       }
     } catch (error: any) {
       console.error('Google Sign-In error:', error);

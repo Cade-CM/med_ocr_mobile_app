@@ -85,26 +85,26 @@ export class MedicationDatabase {
               const lines = text.split('\n');
               
               medications = lines
-                .filter(line => line.trim().length > 0)
+                .filter(line => typeof line === 'string' && line.trim().length > 0)
                 .filter(line => !line.toLowerCase().includes('drug_id') && !line.toLowerCase().startsWith('name\t')) // Skip headers
                 .map(line => {
                   // For TSV/CSV, take first column
                   const parts = line.split(/[,\t]/);
                   return parts[0].trim();
                 })
-                .filter(name => name.length >= 4 && name.length <= 50);
+                .filter(name => typeof name === 'string' && name.length >= 4 && name.length <= 50);
             }
             
             // Clean and add medications
             const cleanedMeds = medications
               .map(med => med.toUpperCase().replace(/[^A-Z\s-]/g, '').trim())
-              .filter(name => name.length >= 4 && name.length <= 40)
+              .filter(name => typeof name === 'string' && name.length >= 4 && name.length <= 40)
               .filter(name => /^[A-Z][A-Z\s-]+$/.test(name));
             
             cleanedMeds.forEach(med => allMedications.add(med));
-            if (cleanedMeds.length > 0) {
+            if (Array.isArray(cleanedMeds) && cleanedMeds.length > 0) {
               successCount++;
-              console.log(`Fetched ${cleanedMeds.length} medications from source ${successCount} (total: ${allMedications.size})`);
+              console.log(`Fetched ${Array.isArray(cleanedMeds) ? cleanedMeds.length : 0} medications from source ${successCount} (total: ${allMedications.size})`);
             }
             
             // OPTIMIZATION: Early exit if we have enough medications
@@ -153,7 +153,7 @@ export class MedicationDatabase {
             const names = new Set(
               text.split('\n')
                 .map(name => name.trim().toUpperCase())
-                .filter(name => name.length > 0)
+                .filter(name => typeof name === 'string' && name.length > 0)
             );
             if (names.size > 0) {
               return names;
@@ -190,7 +190,7 @@ export class MedicationDatabase {
             const names = new Set(
               text.split('\n')
                 .map(name => name.trim().toUpperCase())
-                .filter(name => name.length > 0)
+                .filter(name => typeof name === 'string' && name.length > 0)
             );
             if (names.size > 0) {
               return names;
@@ -296,7 +296,7 @@ export class MedicationDatabase {
     console.log(`🔍 Checking local patient database for: "${firstName} ${lastName}"`);
     
     const localPatients = await StorageService.getPatientNames();
-    console.log(`📦 Local database has ${localPatients.length} patient(s)`);
+    console.log(`📦 Local database has ${Array.isArray(localPatients) ? localPatients.length : 0} patient(s)`);
     
     for (const patient of localPatients) {
       const localFirst = patient.firstName.toUpperCase();
@@ -504,9 +504,9 @@ export class MedicationDatabase {
     }
     
     // Split input into words
-    const inputWords = normalized.split(/\s+/).filter(w => w.length > 0);
+    const inputWords = normalized.split(/\s+/).filter(w => typeof w === 'string' && w.length > 0);
     const firstWord = inputWords[0];
-    const secondWord = inputWords.length > 1 ? inputWords[1] : undefined;
+    const secondWord = Array.isArray(inputWords) && inputWords.length > 1 ? inputWords[1] : undefined;
     
     console.log(`🔍 Two-stage matching: first="${firstWord}", second="${secondWord || '(none)'}"`);
     
@@ -514,7 +514,7 @@ export class MedicationDatabase {
     const firstWordMatches: Array<{medication: string, firstSimilarity: number}> = [];
     
     for (const med of medications) {
-      const medWords = med.split(/\s+/).filter(w => w.length > 0);
+      const medWords = med.split(/\s+/).filter(w => typeof w === 'string' && w.length > 0);
       const medFirstWord = medWords[0];
       
       const similarity = this.calculateSimilarity(firstWord, medFirstWord);
@@ -527,11 +527,11 @@ export class MedicationDatabase {
       }
     }
     
-    if (firstWordMatches.length === 0) {
+    if (Array.isArray(firstWordMatches) && firstWordMatches.length === 0) {
       console.log(`⚠️ No first word match found (need >= 90% similarity for "${firstWord}")`);
       
       // Fallback: Look for medications that start with the same prefix (at least 4 chars)
-      if (firstWord.length >= 4) {
+      if (typeof firstWord === 'string' && firstWord.length >= 4) {
         const prefix = firstWord.substring(0, 4);
         for (const med of medications) {
           if (med.startsWith(prefix)) {
@@ -544,7 +544,7 @@ export class MedicationDatabase {
       return undefined;
     }
     
-    console.log(`✓ Found ${firstWordMatches.length} medication(s) with first word >= 90% match`);
+    console.log(`✓ Found ${Array.isArray(firstWordMatches) ? firstWordMatches.length : 0} medication(s) with first word >= 90% match`);
     
     // Stage 2: If input has second word, find best match with second word >= 10%
     if (secondWord) {
@@ -553,9 +553,9 @@ export class MedicationDatabase {
       let bestFirstSimilarity = 0;
       
       for (const match of firstWordMatches) {
-        const medWords = match.medication.split(/\s+/).filter(w => w.length > 0);
+        const medWords = match.medication.split(/\s+/).filter(w => typeof w === 'string' && w.length > 0);
         
-        if (medWords.length > 1) {
+        if (Array.isArray(medWords) && medWords.length > 1) {
           const medSecondWord = medWords[1];
           const secondSimilarity = this.calculateSimilarity(secondWord, medSecondWord);
           

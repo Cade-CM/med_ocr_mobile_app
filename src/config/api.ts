@@ -1,3 +1,5 @@
+// FastAPI backend for users, meds, events, etc.
+export const BACKEND_API_URL = "http://10.0.0.26:8000";
 /**
  * API Configuration
  */

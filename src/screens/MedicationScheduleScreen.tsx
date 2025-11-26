@@ -43,6 +43,9 @@ const MedicationScheduleScreen: React.FC<Props> = ({route, navigation}) => {
     const finalMedication: Medication = {
       ...medication,
       reminderTimes: adjustedTimes,
+      // Always preserve medication_key and id if present
+      ...(medication.medication_key ? { medication_key: medication.medication_key } : {}),
+      ...(medication.id ? { id: medication.id } : {}),
     };
 
     try {
@@ -67,24 +70,13 @@ const MedicationScheduleScreen: React.FC<Props> = ({route, navigation}) => {
           ],
         );
       } else {
-        // Save new medication
+        // Save new medication first
         await StorageService.saveMedication(finalMedication);
         
-        Alert.alert(
-          'Success',
-          'Medication added successfully! Reminders have been scheduled.',
-          [
-            {
-              text: 'OK',
-              onPress: () => {
-                navigation.reset({
-                  index: 0,
-                  routes: [{ name: 'Home' }],
-                });
-              },
-            },
-          ],
-        );
+        // Navigate to Link RFID screen
+        navigation.navigate('LinkRFID', {
+          medication: finalMedication,
+        });
       }
     } catch (error) {
       Alert.alert('Error', `Failed to ${editMode ? 'update' : 'save'} medication. Please try again.`);

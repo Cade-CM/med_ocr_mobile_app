@@ -123,14 +123,15 @@ export class SchedulingService {
    */
   static getNextDoseTime(medication: Medication): Date | null {
     const now = new Date();
-    const upcomingTimes = medication.reminderTimes.filter(time => time > now);
+    const times = Array.isArray(medication.reminderTimes) ? medication.reminderTimes : [];
+    const upcomingTimes = times.filter(time => time > now);
     
-    if (upcomingTimes.length > 0) {
+    if (Array.isArray(upcomingTimes) && upcomingTimes.length > 0) {
       return upcomingTimes[0];
     }
 
     // If no upcoming times today, return first time tomorrow
-    if (medication.reminderTimes.length > 0) {
+    if (Array.isArray(medication.reminderTimes) && medication.reminderTimes.length > 0) {
       const tomorrow = new Date(now);
       tomorrow.setDate(tomorrow.getDate() + 1);
       const firstTime = medication.reminderTimes[0];
@@ -169,6 +170,8 @@ export class SchedulingService {
       },
       notificationEnabled: true,
       notificationSound: true,
+      useRFIDConfirmation: false,
+      confirmationWindowMinutes: 30,
     };
   }
 

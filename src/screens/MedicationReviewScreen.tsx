@@ -1,4 +1,6 @@
-import React, {useState, useEffect} from 'react';
+import React, {useState, useEffect, useMemo} from 'react';
+import { useAppData } from '../context/AppDataContext';
+import { FlatList } from 'react-native';
 import {
   View,
   Text,
@@ -11,14 +13,19 @@ import {
 } from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList, ParsedMedicationData} from '@types';
+import { Medication } from '@types';
 import {OCRService} from '@services/OCRService';
 import {StorageService} from '@services/StorageService';
+import {createMedication, updateMedication, MedicationCreate} from '@services/BackendService';
 import {MaterialIcons as Icon} from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MedicationReview'>;
 
+  
 const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
+    // Get live medications and refresh from context
+    const { medications, refreshMedications } = useAppData();
   const {
     imageUri = '',
     rawOcrText = '',
@@ -26,6 +33,18 @@ const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
     editMode = false,
     existingMedication
   } = route.params || {};
+  
+  // Always use backend context medication for updates
+  const backendMed = useMemo(() => {
+    if (!editMode || !existingMedication) return undefined;
+    return (
+      medications.find(
+        m =>
+          m.medication_key === existingMedication.medication_key ||
+          m.id === Number(existingMedication.id)
+      ) || null
+    );
+  }, [editMode, existingMedication, medications]);
   
   const [parsedData, setParsedData] = useState<ParsedMedicationData>(() => {
     if (editMode && existingMedication) {
@@ -137,7 +156,7 @@ const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
     
     // Auto-format: add dash after 7 digits
     let formatted = cleaned;
-    if (cleaned.length >= 7) {
+    if (Array.isArray(cleaned) && cleaned.length >= 7) {
       formatted = cleaned.slice(0, 7) + '-' + cleaned.slice(7, 12);
     }
     
@@ -151,10 +170,10 @@ const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
     
     // Auto-format: add slashes
     let formatted = cleaned;
-    if (cleaned.length >= 2) {
+    if (Array.isArray(cleaned) && cleaned.length >= 2) {
       formatted = cleaned.slice(0, 2) + '/' + cleaned.slice(2);
     }
-    if (cleaned.length >= 4) {
+    if (Array.isArray(cleaned) && cleaned.length >= 4) {
       formatted = cleaned.slice(0, 2) + '/' + cleaned.slice(2, 4) + '/' + cleaned.slice(4, 6);
     }
     
@@ -168,10 +187,10 @@ const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
     
     // Auto-format: add parentheses, space, and dash
     let formatted = cleaned;
-    if (cleaned.length >= 3) {
+    if (Array.isArray(cleaned) && cleaned.length >= 3) {
       formatted = '(' + cleaned.slice(0, 3) + ') ' + cleaned.slice(3);
     }
-    if (cleaned.length >= 6) {
+    if (Array.isArray(cleaned) && cleaned.length >= 6) {
       formatted = '(' + cleaned.slice(0, 3) + ') ' + cleaned.slice(3, 6) + '-' + cleaned.slice(6, 10);
     }
     
@@ -243,53 +262,87 @@ const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
       Alert.alert('Required Field', 'Please enter the medication name.');
       return;
     }
-
     if (!dosage.trim()) {
       Alert.alert('Required Field', 'Please enter the dosage.');
       return;
     }
-
     if (!frequency.trim()) {
       Alert.alert('Required Field', 'Please enter the frequency.');
       return;
     }
 
-    const medication = {
-      id: editMode && existingMedication ? existingMedication.id : Date.now().toString(),
-      patientName: patientName.trim() || undefined,
-      drugName: drugName.trim(),
-      strength: strength.trim() || undefined,
-      dosage: dosage.trim(),
-      frequency: frequency.trim(),
-      duration: duration.trim() || undefined,
-      instructions: instructions.trim() || undefined,
-      rxNumber: rxNumber.trim() || undefined,
-      quantity: quantity.trim() || undefined,
-      refills: refills.trim() || undefined,
-      refillsBeforeDate: refillsBeforeDate.trim() || undefined,
-      pharmacy: pharmacy.trim() || undefined,
-      pharmacyPhone: pharmacyPhone.trim() || undefined,
-      reminderTimes: editMode && existingMedication ? existingMedication.reminderTimes : [],
-      startDate: editMode && existingMedication ? existingMedication.startDate : new Date(),
-      capturedImageUri: imageUri,
-      rawOcrText,
-    };
-
-    // In edit mode, save the medication immediately before navigating
-    if (editMode && existingMedication) {
-      try {
-        await StorageService.updateMedication(medication);
-      } catch (error) {
-        console.error('Error updating medication in review screen:', error);
-        Alert.alert('Error', 'Failed to save changes. Please try again.');
-        return;
-      }
+    // Get user_key from AsyncStorage
+    const user_key = await AsyncStorage.getItem('user_key');
+    if (!user_key) {
+      Alert.alert('Error', 'User not found. Please sign up again.');
+      return;
     }
 
-    navigation.navigate('MedicationSchedule', {
-      medication,
-      editMode: editMode || false,
-    });
+    // Prepare medication payload for backend (always include medication_key if present)
+    const medPayload: MedicationCreate = {
+      user_key,
+      drug_name: drugName.trim(),
+      strength: strength.trim() || undefined,
+      route: undefined,
+      instruction: instructions.trim() || undefined,
+      frequency_text: frequency.trim(),
+      qty_text: quantity.trim() || undefined,
+      refills_text: refills.trim() || undefined,
+      ...(existingMedication && existingMedication.medication_key ? { medication_key: existingMedication.medication_key } : {}),
+      ...(existingMedication && existingMedication.id ? { id: existingMedication.id } : {}),
+    };
+
+    try {
+      let backendMed;
+      if (editMode && existingMedication && existingMedication.id) {
+        // Update existing medication
+        const medUpdatePayload = {
+          ...medPayload,
+          is_active: true,
+        };
+        console.log('Attempting to update medication with:', medUpdatePayload);
+        backendMed = await updateMedication(medUpdatePayload);
+      } else {
+        // Create new medication
+        console.log('Attempting to create medication with:', medPayload);
+        backendMed = await createMedication(medPayload);
+      }
+      console.log('Medication saved in backend:', backendMed);
+      // Map backend response to frontend Medication type, convert startDate to Date, and only add medication_key if type allows
+      const mappedMedication: any = {
+        id: String(backendMed.id),
+        user_key: backendMed.user_key,
+        drugName: backendMed.drug_name || '',
+        dosage: dosage.trim(),
+        frequency: frequency.trim(),
+        startDate: new Date(), // Use Date object
+        patientName: patientName.trim() || undefined,
+        strength: strength.trim() || undefined,
+        duration: duration.trim() || undefined,
+        instructions: instructions.trim() || undefined,
+        rxNumber: rxNumber.trim() || undefined,
+        quantity: quantity.trim() || undefined,
+        refills: refills.trim() || undefined,
+        refillsBeforeDate: refillsBeforeDate.trim() || undefined,
+        pharmacy: pharmacy.trim() || undefined,
+        pharmacyPhone: pharmacyPhone.trim() || undefined,
+        capturedImageUri: imageUri,
+        rawOcrText: rawOcrText,
+        reminderTimes: [],
+      };
+      // Only add medication_key if present
+      if (backendMed.medication_key || existingMedication?.medication_key) {
+        mappedMedication.medication_key = backendMed.medication_key ?? existingMedication.medication_key;
+      }
+      navigation.navigate('MedicationSchedule', {
+        medication: mappedMedication,
+        editMode: editMode || false,
+      });
+      await refreshMedications();
+    } catch (error) {
+      console.error('Error saving medication in backend:', error);
+      Alert.alert('Error', `Failed to save medication.\nID: ${editMode && existingMedication ? existingMedication.id : 'NEW'}\nPayload: ${JSON.stringify(medPayload, null, 2)}`);
+    }
   };
 
   const confidenceColor = 
@@ -301,11 +354,13 @@ const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
       <View style={styles.content}>
         {/* Captured Image */}
         <View style={styles.imageContainer}>
-          <Image
-            source={{uri: imageUri}}
-            style={styles.image}
-            resizeMode="contain"
-          />
+          {imageUri ? (
+            <Image
+              source={{uri: imageUri}}
+              style={styles.image}
+              resizeMode="contain"
+            />
+          ) : null}
         </View>
 
         {/* Confidence Score */}
@@ -315,7 +370,6 @@ const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
             Confidence: {parsedData.confidence.toFixed(0)}%
           </Text>
         </View>
-
         <Text style={styles.sectionTitle}>
           {editMode ? 'Edit Medication' : 'Review Extracted Information'}
         </Text>
@@ -336,8 +390,6 @@ const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
             onChangeText={(text) => setPatientName(text.toUpperCase())}
             onFocus={() => handleFocus('patientName', patientName, setPatientName, setOriginalPatientName)}
             onBlur={() => handleBlur(patientName, originalPatientName, setPatientName, setOriginalPatientName, true)}
-            placeholder="e.g., John Doe"
-            placeholderTextColor="#999"
           />
         </View>
 

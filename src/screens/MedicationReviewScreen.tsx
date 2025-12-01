@@ -1,6 +1,5 @@
-import React, {useState, useEffect, useMemo} from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAppData } from '../context/AppDataContext';
-import { FlatList } from 'react-native';
 import {
   View,
   Text,
@@ -11,44 +10,30 @@ import {
   Image,
   Alert,
 } from 'react-native';
-import {NativeStackScreenProps} from '@react-navigation/native-stack';
-import {RootStackParamList, ParsedMedicationData} from '@types';
-import { Medication } from '@types';
-import {OCRService} from '@services/OCRService';
-import {StorageService} from '@services/StorageService';
-import {createMedication, updateMedication, MedicationCreate} from '@services/BackendService';
-import {MaterialIcons as Icon} from '@expo/vector-icons';
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { RootStackParamList, ParsedMedicationData } from '@types';
+import { OCRService } from '@services/OCRService';
+import { createMedication, updateMedication, MedicationCreate } from '@services/BackendService';
+import { MaterialIcons as Icon } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getLocalUserProfile } from '../services/UserLocalStorage';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MedicationReview'>;
 
-  
-const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
-    // Get live medications and refresh from context
-    const { medications, refreshMedications } = useAppData();
+const MedicationReviewScreen: React.FC<Props> = ({ route, navigation }) => {
+  // Removed autofill of patient name from local profile in edit mode. Patient name will always fill from OCR parsed data.
+  const { medications, refreshMedications } = useAppData();
+
   const {
     imageUri = '',
     rawOcrText = '',
     parsedData: initialParsedData,
     editMode = false,
-    existingMedication
+    existingMedication,
   } = route.params || {};
-  
-  // Always use backend context medication for updates
-  const backendMed = useMemo(() => {
-    if (!editMode || !existingMedication) return undefined;
-    return (
-      medications.find(
-        m =>
-          m.medication_key === existingMedication.medication_key ||
-          m.id === Number(existingMedication.id)
-      ) || null
-    );
-  }, [editMode, existingMedication, medications]);
-  
+
   const [parsedData, setParsedData] = useState<ParsedMedicationData>(() => {
     if (editMode && existingMedication) {
-      // In edit mode, use existing medication data
       return {
         patientName: existingMedication.patientName,
         drugName: existingMedication.drugName,
@@ -63,14 +48,12 @@ const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
         refillsBeforeDate: existingMedication.refillsBeforeDate,
         pharmacy: existingMedication.pharmacy,
         pharmacyPhone: existingMedication.pharmacyPhone,
-        confidence: 100, // Manually entered/edited data
+        confidence: 100,
       };
     } else if (initialParsedData) {
-      // Use LLM-parsed data from server if available
       console.log('MedicationReviewScreen: Using LLM-parsed data from server');
       return initialParsedData;
     } else {
-      // Return empty initial state, will parse in useEffect
       return {
         confidence: 0,
       };
@@ -87,33 +70,41 @@ const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
   const [rxNumber, setRxNumber] = useState(parsedData.rxNumber || '');
   const [quantity, setQuantity] = useState(parsedData.quantity || '');
   const [refills, setRefills] = useState(parsedData.refills || '');
-  const [refillsBeforeDate, setRefillsBeforeDate] = useState(parsedData.refillsBeforeDate || '');
+  const [refillsBeforeDate, setRefillsBeforeDate] = useState(
+    parsedData.refillsBeforeDate || '',
+  );
   const [pharmacy, setPharmacy] = useState(parsedData.pharmacy || '');
   const [pharmacyPhone, setPharmacyPhone] = useState(parsedData.pharmacyPhone || '');
 
-  // Store original values for restoration on blur
+  // Original values for restore-on-blur behavior
   const [originalPatientName, setOriginalPatientName] = useState(parsedData.patientName || '');
   const [originalDrugName, setOriginalDrugName] = useState(parsedData.drugName || '');
   const [originalStrength, setOriginalStrength] = useState(parsedData.strength || '');
   const [originalDosage, setOriginalDosage] = useState(parsedData.dosage || '');
   const [originalFrequency, setOriginalFrequency] = useState(parsedData.frequency || '');
   const [originalDuration, setOriginalDuration] = useState(parsedData.duration || '');
-  const [originalInstructions, setOriginalInstructions] = useState(parsedData.instructions || '');
+  const [originalInstructions, setOriginalInstructions] = useState(
+    parsedData.instructions || '',
+  );
   const [originalRxNumber, setOriginalRxNumber] = useState(parsedData.rxNumber || '');
   const [originalQuantity, setOriginalQuantity] = useState(parsedData.quantity || '');
   const [originalRefills, setOriginalRefills] = useState(parsedData.refills || '');
-  const [originalRefillsBeforeDate, setOriginalRefillsBeforeDate] = useState(parsedData.refillsBeforeDate || '');
+  const [originalRefillsBeforeDate, setOriginalRefillsBeforeDate] = useState(
+    parsedData.refillsBeforeDate || '',
+  );
   const [originalPharmacy, setOriginalPharmacy] = useState(parsedData.pharmacy || '');
-  const [originalPharmacyPhone, setOriginalPharmacyPhone] = useState(parsedData.pharmacyPhone || '');
+  const [originalPharmacyPhone, setOriginalPharmacyPhone] = useState(
+    parsedData.pharmacyPhone || '',
+  );
 
-  // Parse OCR text on mount (only in non-edit mode and if no parsed data provided)
+  // Initial client-side parse (fallback) when no parsedData is provided
   useEffect(() => {
     const parseInitialData = async () => {
       if (!editMode && !initialParsedData && rawOcrText) {
         console.log('MedicationReviewScreen: Initial parse (client-side fallback)');
         const parsed = await OCRService.parseMedicationLabel(rawOcrText || '');
         console.log('MedicationReviewScreen: Parsed data:', parsed);
-        
+
         setParsedData(parsed);
         setPatientName(parsed.patientName || '');
         setDrugName(parsed.drugName || '');
@@ -128,8 +119,7 @@ const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
         setRefillsBeforeDate(parsed.refillsBeforeDate || '');
         setPharmacy(parsed.pharmacy || '');
         setPharmacyPhone(parsed.pharmacyPhone || '');
-        
-        // Set original values
+
         setOriginalPatientName(parsed.patientName || '');
         setOriginalDrugName(parsed.drugName || '');
         setOriginalStrength(parsed.strength || '');
@@ -145,83 +135,83 @@ const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
         setOriginalPharmacyPhone(parsed.pharmacyPhone || '');
       }
     };
-    
-    parseInitialData();
-  }, [editMode, rawOcrText]);
 
-  // Format RX number with dash after 7 digits (e.g., 1234567-10613)
+    parseInitialData();
+  }, [editMode, rawOcrText, initialParsedData]);
+
+  // Rx number formatter: numeric only, dash after 7 digits
   const handleRxNumberChange = (text: string) => {
-    // Remove all non-numeric characters
-    const cleaned = text.replace(/\D/g, '');
-    
-    // Auto-format: add dash after 7 digits
+    const cleaned = text.replace(/\D/g, '').slice(0, 12); // max 12 digits
     let formatted = cleaned;
-    if (Array.isArray(cleaned) && cleaned.length >= 7) {
-      formatted = cleaned.slice(0, 7) + '-' + cleaned.slice(7, 12);
+
+    if (cleaned.length > 7) {
+      formatted = `${cleaned.slice(0, 7)}-${cleaned.slice(7)}`;
     }
-    
+
     setRxNumber(formatted);
   };
 
-  // Format date as MM/DD/YY (2-digit year)
+  // Date formatter: MM/DD/YY from up to 6 digits
   const handleDateChange = (text: string) => {
-    // Remove all non-numeric characters
-    const cleaned = text.replace(/\D/g, '');
-    
-    // Auto-format: add slashes
+    const cleaned = text.replace(/\D/g, '').slice(0, 6); // MMDDYY
     let formatted = cleaned;
-    if (Array.isArray(cleaned) && cleaned.length >= 2) {
-      formatted = cleaned.slice(0, 2) + '/' + cleaned.slice(2);
+
+    if (cleaned.length >= 3 && cleaned.length <= 4) {
+      formatted = `${cleaned.slice(0, 2)}/${cleaned.slice(2)}`;
+    } else if (cleaned.length > 4) {
+      formatted = `${cleaned.slice(0, 2)}/${cleaned.slice(2, 4)}/${cleaned.slice(4)}`;
     }
-    if (Array.isArray(cleaned) && cleaned.length >= 4) {
-      formatted = cleaned.slice(0, 2) + '/' + cleaned.slice(2, 4) + '/' + cleaned.slice(4, 6);
-    }
-    
+
     setRefillsBeforeDate(formatted);
   };
 
-  // Format phone number as (XXX) XXX-XXXX
+  // Phone formatter: (XXX) XXX-XXXX from up to 10 digits
   const handlePhoneChange = (text: string) => {
-    // Remove all non-numeric characters
-    const cleaned = text.replace(/\D/g, '');
-    
-    // Auto-format: add parentheses, space, and dash
+    const cleaned = text.replace(/\D/g, '').slice(0, 10);
     let formatted = cleaned;
-    if (Array.isArray(cleaned) && cleaned.length >= 3) {
-      formatted = '(' + cleaned.slice(0, 3) + ') ' + cleaned.slice(3);
+
+    if (cleaned.length > 3 && cleaned.length <= 6) {
+      formatted = `(${cleaned.slice(0, 3)}) ${cleaned.slice(3)}`;
+    } else if (cleaned.length > 6) {
+      formatted = `(${cleaned.slice(0, 3)}) ${cleaned.slice(3, 6)}-${cleaned.slice(6)}`;
     }
-    if (Array.isArray(cleaned) && cleaned.length >= 6) {
-      formatted = '(' + cleaned.slice(0, 3) + ') ' + cleaned.slice(3, 6) + '-' + cleaned.slice(6, 10);
-    }
-    
+
     setPharmacyPhone(formatted);
   };
 
-  // Handle focus - clear the field and save current value as original
-  const handleFocus = (field: string, value: string, setter: (val: string) => void, originalSetter: (val: string) => void) => {
+  // Focus and blur handlers for revert behavior
+  const handleFocus = (
+    _field: string,
+    value: string,
+    setter: (val: string) => void,
+    originalSetter: (val: string) => void,
+  ) => {
     originalSetter(value);
     setter('');
   };
 
-  // Handle blur - restore original if empty for required fields, keep blank for optional
-  const handleBlur = (currentValue: string, originalValue: string, setter: (val: string) => void, originalSetter: (val: string) => void, isRequired: boolean = false) => {
+  const handleBlur = (
+    currentValue: string,
+    originalValue: string,
+    setter: (val: string) => void,
+    originalSetter: (val: string) => void,
+    isRequired: boolean = false,
+  ) => {
     if (currentValue.trim()) {
-      // User entered something, update the original value for future edits
       originalSetter(currentValue);
     } else if (isRequired) {
-      // Required field with no value - restore original
       setter(originalValue);
     }
-    // Optional fields keep blank value if nothing entered
   };
 
-  // Re-parse when rawOcrText changes (only in non-edit mode and no parsed data)
+  // Re-parse when rawOcrText changes (non edit mode, no initialParsedData)
   useEffect(() => {
     const reparseData = async () => {
       if (!editMode && !initialParsedData && rawOcrText) {
         console.log('MedicationReviewScreen: Reparsing due to new OCR text');
         const newParsed = await OCRService.parseMedicationLabel(rawOcrText || '');
         console.log('MedicationReviewScreen: New parsed data:', newParsed);
+
         setParsedData(newParsed);
         setPatientName(newParsed.patientName || '');
         setDrugName(newParsed.drugName || '');
@@ -236,8 +226,7 @@ const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
         setRefillsBeforeDate(newParsed.refillsBeforeDate || '');
         setPharmacy(newParsed.pharmacy || '');
         setPharmacyPhone(newParsed.pharmacyPhone || '');
-        
-        // Update original values too
+
         setOriginalPatientName(newParsed.patientName || '');
         setOriginalDrugName(newParsed.drugName || '');
         setOriginalStrength(newParsed.strength || '');
@@ -253,11 +242,13 @@ const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
         setOriginalPharmacyPhone(newParsed.pharmacyPhone || '');
       }
     };
-    
+
     reparseData();
   }, [rawOcrText, editMode, initialParsedData]);
 
   const handleContinue = async () => {
+    console.log('DEBUG: handleContinue called');
+    console.log('DEBUG: patientName value:', patientName);
     if (!drugName.trim()) {
       Alert.alert('Required Field', 'Please enter the medication name.');
       return;
@@ -271,15 +262,17 @@ const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
       return;
     }
 
-    // Get user_key from AsyncStorage
     const user_key = await AsyncStorage.getItem('user_key');
+    console.log('DEBUG: user_key:', user_key);
     if (!user_key) {
       Alert.alert('Error', 'User not found. Please sign up again.');
       return;
     }
 
-    // Prepare medication payload for backend (always include medication_key if present)
-    const medPayload: MedicationCreate = {
+    const medPayload: MedicationCreate & {
+      medication_key?: string;
+      id?: number | string;
+    } = {
       user_key,
       drug_name: drugName.trim(),
       strength: strength.trim() || undefined,
@@ -288,34 +281,48 @@ const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
       frequency_text: frequency.trim(),
       qty_text: quantity.trim() || undefined,
       refills_text: refills.trim() || undefined,
-      ...(existingMedication && existingMedication.medication_key ? { medication_key: existingMedication.medication_key } : {}),
-      ...(existingMedication && existingMedication.id ? { id: existingMedication.id } : {}),
+      ...(existingMedication?.medication_key
+        ? { medication_key: existingMedication.medication_key }
+        : {}),
+      ...(existingMedication?.id ? { id: existingMedication.id } : {}),
     };
+    console.log('DEBUG: medPayload for backend:', medPayload);
 
     try {
       let backendMed;
-      if (editMode && existingMedication && existingMedication.id) {
-        // Update existing medication
+      if (editMode && existingMedication?.id) {
         const medUpdatePayload = {
           ...medPayload,
           is_active: true,
         };
-        console.log('Attempting to update medication with:', medUpdatePayload);
-        backendMed = await updateMedication(medUpdatePayload);
+        console.log('DEBUG: Attempting to update medication with:', medUpdatePayload);
+        try {
+          backendMed = await updateMedication(medUpdatePayload);
+          console.log('DEBUG: updateMedication response:', backendMed);
+        } catch (err) {
+          console.warn('DEBUG: Update failed, trying create:', err);
+          backendMed = await createMedication(medPayload);
+          console.log('DEBUG: createMedication response after failed update:', backendMed);
+        }
       } else {
-        // Create new medication
-        console.log('Attempting to create medication with:', medPayload);
+        console.log('DEBUG: Attempting to create medication with:', medPayload);
         backendMed = await createMedication(medPayload);
+        console.log('DEBUG: createMedication response:', backendMed);
       }
-      console.log('Medication saved in backend:', backendMed);
-      // Map backend response to frontend Medication type, convert startDate to Date, and only add medication_key if type allows
+
+      if (!backendMed || !backendMed.id) {
+        console.error('DEBUG: No medication returned from backend:', backendMed);
+        Alert.alert('Error', 'No medication returned from backend. Please check server logs.');
+        return;
+      }
+
       const mappedMedication: any = {
         id: String(backendMed.id),
         user_key: backendMed.user_key,
         drugName: backendMed.drug_name || '',
         dosage: dosage.trim(),
         frequency: frequency.trim(),
-        startDate: new Date(), // Use Date object
+        startDate: new Date().toISOString(), // Serialize date for navigation
         patientName: patientName.trim() || undefined,
         strength: strength.trim() || undefined,
         duration: duration.trim() || undefined,
@@ -330,24 +337,32 @@ const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
         rawOcrText: rawOcrText,
         reminderTimes: [],
       };
-      // Only add medication_key if present
+
       if (backendMed.medication_key || existingMedication?.medication_key) {
-        mappedMedication.medication_key = backendMed.medication_key ?? existingMedication.medication_key;
+        mappedMedication.medication_key =
+          backendMed.medication_key ?? existingMedication?.medication_key;
       }
+
+      console.log('DEBUG: Navigating to MedicationSchedule with:', mappedMedication);
       navigation.navigate('MedicationSchedule', {
         medication: mappedMedication,
-        editMode: editMode || false,
+        editMode: !!editMode,
       });
       await refreshMedications();
     } catch (error) {
-      console.error('Error saving medication in backend:', error);
-      Alert.alert('Error', `Failed to save medication.\nID: ${editMode && existingMedication ? existingMedication.id : 'NEW'}\nPayload: ${JSON.stringify(medPayload, null, 2)}`);
+      console.error('DEBUG: Error saving medication in backend:', error);
+      Alert.alert(
+        'Error',
+        `Failed to save medication.\nID: ${
+          editMode && existingMedication ? existingMedication.id : 'NEW'
+        }\nPayload: ${JSON.stringify(medPayload, null, 2)}\nError: ${error}`,
+      );
     }
   };
 
-  const confidenceColor = 
-    parsedData.confidence >= 70 ? '#34C759' :
-    parsedData.confidence >= 40 ? '#FF9500' : '#FF3B30';
+  const confidenceValue = parsedData.confidence ?? 0;
+  const confidenceColor =
+    confidenceValue >= 70 ? '#34C759' : confidenceValue >= 40 ? '#FF9500' : '#FF3B30';
 
   return (
     <ScrollView style={styles.container}>
@@ -355,27 +370,24 @@ const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
         {/* Captured Image */}
         <View style={styles.imageContainer}>
           {imageUri ? (
-            <Image
-              source={{uri: imageUri}}
-              style={styles.image}
-              resizeMode="contain"
-            />
+            <Image source={{ uri: imageUri }} style={styles.image} resizeMode="contain" />
           ) : null}
         </View>
 
         {/* Confidence Score */}
         <View style={styles.confidenceContainer}>
           <Icon name="info-outline" size={20} color={confidenceColor} />
-          <Text style={[styles.confidenceText, {color: confidenceColor}]}>
-            Confidence: {parsedData.confidence.toFixed(0)}%
+          <Text style={[styles.confidenceText, { color: confidenceColor }]}>
+            Confidence: {confidenceValue.toFixed(0)}%
           </Text>
         </View>
+
         <Text style={styles.sectionTitle}>
           {editMode ? 'Edit Medication' : 'Review Extracted Information'}
         </Text>
         <Text style={styles.subtitle}>
-          {editMode 
-            ? 'Update the medication information' 
+          {editMode
+            ? 'Update the medication information'
             : 'Please verify and edit the information below'}
         </Text>
 
@@ -387,13 +399,23 @@ const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
           <TextInput
             style={styles.input}
             value={patientName}
-            onChangeText={(text) => setPatientName(text.toUpperCase())}
-            onFocus={() => handleFocus('patientName', patientName, setPatientName, setOriginalPatientName)}
-            onBlur={() => handleBlur(patientName, originalPatientName, setPatientName, setOriginalPatientName, true)}
+            onChangeText={text => setPatientName(text.toUpperCase())}
+            onFocus={() =>
+              handleFocus('patientName', patientName, setPatientName, setOriginalPatientName)
+            }
+            onBlur={() =>
+              handleBlur(
+                patientName,
+                originalPatientName,
+                setPatientName,
+                setOriginalPatientName,
+                true,
+              )
+            }
           />
         </View>
 
-        {/* Drug Name */}
+        {/* Medication Name */}
         <View style={styles.inputGroup}>
           <Text style={styles.label}>
             Medication Name <Text style={styles.required}>*</Text>
@@ -401,9 +423,19 @@ const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
           <TextInput
             style={styles.input}
             value={drugName}
-            onChangeText={(text) => setDrugName(text.toUpperCase())}
-            onFocus={() => handleFocus('drugName', drugName, setDrugName, setOriginalDrugName)}
-            onBlur={() => handleBlur(drugName, originalDrugName, setDrugName, setOriginalDrugName, true)}
+            onChangeText={text => setDrugName(text.toUpperCase())}
+            onFocus={() =>
+              handleFocus('drugName', drugName, setDrugName, setOriginalDrugName)
+            }
+            onBlur={() =>
+              handleBlur(
+                drugName,
+                originalDrugName,
+                setDrugName,
+                setOriginalDrugName,
+                true,
+              )
+            }
             placeholder="e.g., Prednisone"
             placeholderTextColor="#999"
           />
@@ -417,20 +449,26 @@ const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
           <TextInput
             style={styles.input}
             value={strength}
-            onChangeText={(text) => {
-              // Filter to only numbers, letters, and decimal points; uppercase all letters
+            onChangeText={text => {
               const filtered = text.replace(/[^0-9a-zA-Z.]/g, '').toUpperCase();
               setStrength(filtered);
             }}
-            onFocus={() => handleFocus('strength', strength, setStrength, setOriginalStrength)}
+            onFocus={() =>
+              handleFocus('strength', strength, setStrength, setOriginalStrength)
+            }
             onBlur={() => {
-              // Auto-append "MG" if not already present
               let finalValue = strength.trim();
               if (finalValue && !finalValue.endsWith('MG')) {
                 finalValue = finalValue + 'MG';
                 setStrength(finalValue);
               }
-              handleBlur(finalValue || strength, originalStrength, setStrength, setOriginalStrength, true);
+              handleBlur(
+                finalValue || strength,
+                originalStrength,
+                setStrength,
+                setOriginalStrength,
+                true,
+              );
             }}
             placeholder="e.g., 20MG"
             placeholderTextColor="#999"
@@ -446,9 +484,19 @@ const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
           <TextInput
             style={styles.input}
             value={dosage}
-            onChangeText={(text) => setDosage(text.toUpperCase())}
-            onFocus={() => handleFocus('dosage', dosage, setDosage, setOriginalDosage)}
-            onBlur={() => handleBlur(dosage, originalDosage, setDosage, setOriginalDosage, true)}
+            onChangeText={text => setDosage(text.toUpperCase())}
+            onFocus={() =>
+              handleFocus('dosage', dosage, setDosage, setOriginalDosage)
+            }
+            onBlur={() =>
+              handleBlur(
+                dosage,
+                originalDosage,
+                setDosage,
+                setOriginalDosage,
+                true,
+              )
+            }
             placeholder="e.g., 1 tablet"
             placeholderTextColor="#999"
           />
@@ -462,9 +510,19 @@ const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
           <TextInput
             style={styles.input}
             value={frequency}
-            onChangeText={(text) => setFrequency(text.toUpperCase())}
-            onFocus={() => handleFocus('frequency', frequency, setFrequency, setOriginalFrequency)}
-            onBlur={() => handleBlur(frequency, originalFrequency, setFrequency, setOriginalFrequency, true)}
+            onChangeText={text => setFrequency(text.toUpperCase())}
+            onFocus={() =>
+              handleFocus('frequency', frequency, setFrequency, setOriginalFrequency)
+            }
+            onBlur={() =>
+              handleBlur(
+                frequency,
+                originalFrequency,
+                setFrequency,
+                setOriginalFrequency,
+                true,
+              )
+            }
             placeholder="e.g., once daily"
             placeholderTextColor="#999"
           />
@@ -472,21 +530,29 @@ const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
 
         {/* Duration */}
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>
-            Duration
-          </Text>
+          <Text style={styles.label}>Duration</Text>
           <TextInput
             style={styles.input}
             value={duration}
-            onChangeText={(text) => setDuration(text.toUpperCase())}
-            onFocus={() => handleFocus('duration', duration, setDuration, setOriginalDuration)}
-            onBlur={() => handleBlur(duration, originalDuration, setDuration, setOriginalDuration, false)}
+            onChangeText={text => setDuration(text.toUpperCase())}
+            onFocus={() =>
+              handleFocus('duration', duration, setDuration, setOriginalDuration)
+            }
+            onBlur={() =>
+              handleBlur(
+                duration,
+                originalDuration,
+                setDuration,
+                setOriginalDuration,
+                false,
+              )
+            }
             placeholder="e.g., 30 days"
             placeholderTextColor="#999"
           />
         </View>
 
-        {/* RX Number */}
+        {/* Rx Number */}
         <View style={styles.inputGroup}>
           <Text style={styles.label}>
             RX Number <Text style={styles.required}>*</Text>
@@ -495,12 +561,22 @@ const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
             style={styles.input}
             value={rxNumber}
             onChangeText={handleRxNumberChange}
-            onFocus={() => handleFocus('rxNumber', rxNumber, setRxNumber, setOriginalRxNumber)}
-            onBlur={() => handleBlur(rxNumber, originalRxNumber, setRxNumber, setOriginalRxNumber, true)}
+            onFocus={() =>
+              handleFocus('rxNumber', rxNumber, setRxNumber, setOriginalRxNumber)
+            }
+            onBlur={() =>
+              handleBlur(
+                rxNumber,
+                originalRxNumber,
+                setRxNumber,
+                setOriginalRxNumber,
+                true,
+              )
+            }
             placeholder="e.g., 1234567-10613"
             placeholderTextColor="#999"
             keyboardType="numeric"
-            maxLength={13}
+            maxLength={13} // 1234567-10613 length
           />
         </View>
 
@@ -513,8 +589,18 @@ const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
             style={styles.input}
             value={quantity}
             onChangeText={setQuantity}
-            onFocus={() => handleFocus('quantity', quantity, setQuantity, setOriginalQuantity)}
-            onBlur={() => handleBlur(quantity, originalQuantity, setQuantity, setOriginalQuantity, true)}
+            onFocus={() =>
+              handleFocus('quantity', quantity, setQuantity, setOriginalQuantity)
+            }
+            onBlur={() =>
+              handleBlur(
+                quantity,
+                originalQuantity,
+                setQuantity,
+                setOriginalQuantity,
+                true,
+              )
+            }
             placeholder="e.g., 30"
             placeholderTextColor="#999"
             keyboardType="numeric"
@@ -530,8 +616,18 @@ const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
             style={styles.input}
             value={refills}
             onChangeText={setRefills}
-            onFocus={() => handleFocus('refills', refills, setRefills, setOriginalRefills)}
-            onBlur={() => handleBlur(refills, originalRefills, setRefills, setOriginalRefills, true)}
+            onFocus={() =>
+              handleFocus('refills', refills, setRefills, setOriginalRefills)
+            }
+            onBlur={() =>
+              handleBlur(
+                refills,
+                originalRefills,
+                setRefills,
+                setOriginalRefills,
+                true,
+              )
+            }
             placeholder="e.g., 0, 1, 3"
             placeholderTextColor="#999"
             keyboardType="numeric"
@@ -545,12 +641,27 @@ const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
             style={styles.input}
             value={refillsBeforeDate}
             onChangeText={handleDateChange}
-            onFocus={() => handleFocus('refillsBeforeDate', refillsBeforeDate, setRefillsBeforeDate, setOriginalRefillsBeforeDate)}
-            onBlur={() => handleBlur(refillsBeforeDate, originalRefillsBeforeDate, setRefillsBeforeDate, setOriginalRefillsBeforeDate, false)}
+            onFocus={() =>
+              handleFocus(
+                'refillsBeforeDate',
+                refillsBeforeDate,
+                setRefillsBeforeDate,
+                setOriginalRefillsBeforeDate,
+              )
+            }
+            onBlur={() =>
+              handleBlur(
+                refillsBeforeDate,
+                originalRefillsBeforeDate,
+                setRefillsBeforeDate,
+                setOriginalRefillsBeforeDate,
+                false,
+              )
+            }
             placeholder="e.g., 12/25/25"
             placeholderTextColor="#999"
             keyboardType="numeric"
-            maxLength={8}
+            maxLength={8} // MM/DD/YY
           />
         </View>
 
@@ -560,9 +671,19 @@ const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
           <TextInput
             style={styles.input}
             value={pharmacy}
-            onChangeText={(text) => setPharmacy(text.toUpperCase())}
-            onFocus={() => handleFocus('pharmacy', pharmacy, setPharmacy, setOriginalPharmacy)}
-            onBlur={() => handleBlur(pharmacy, originalPharmacy, setPharmacy, setOriginalPharmacy, false)}
+            onChangeText={text => setPharmacy(text.toUpperCase())}
+            onFocus={() =>
+              handleFocus('pharmacy', pharmacy, setPharmacy, setOriginalPharmacy)
+            }
+            onBlur={() =>
+              handleBlur(
+                pharmacy,
+                originalPharmacy,
+                setPharmacy,
+                setOriginalPharmacy,
+                false,
+              )
+            }
             placeholder="e.g., CVS Pharmacy"
             placeholderTextColor="#999"
           />
@@ -575,12 +696,27 @@ const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
             style={styles.input}
             value={pharmacyPhone}
             onChangeText={handlePhoneChange}
-            onFocus={() => handleFocus('pharmacyPhone', pharmacyPhone, setPharmacyPhone, setOriginalPharmacyPhone)}
-            onBlur={() => handleBlur(pharmacyPhone, originalPharmacyPhone, setPharmacyPhone, setOriginalPharmacyPhone, false)}
+            onFocus={() =>
+              handleFocus(
+                'pharmacyPhone',
+                pharmacyPhone,
+                setPharmacyPhone,
+                setOriginalPharmacyPhone,
+              )
+            }
+            onBlur={() =>
+              handleBlur(
+                pharmacyPhone,
+                originalPharmacyPhone,
+                setPharmacyPhone,
+                setOriginalPharmacyPhone,
+                false,
+              )
+            }
             placeholder="e.g., (555) 123-4567"
             placeholderTextColor="#999"
             keyboardType="phone-pad"
-            maxLength={14}
+            maxLength={14} // (XXX) XXX-XXXX
           />
         </View>
 
@@ -590,9 +726,24 @@ const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
           <TextInput
             style={[styles.input, styles.textArea]}
             value={instructions}
-            onChangeText={(text) => setInstructions(text.toUpperCase())}
-            onFocus={() => handleFocus('instructions', instructions, setInstructions, setOriginalInstructions)}
-            onBlur={() => handleBlur(instructions, originalInstructions, setInstructions, setOriginalInstructions, false)}
+            onChangeText={text => setInstructions(text.toUpperCase())}
+            onFocus={() =>
+              handleFocus(
+                'instructions',
+                instructions,
+                setInstructions,
+                setOriginalInstructions,
+              )
+            }
+            onBlur={() =>
+              handleBlur(
+                instructions,
+                originalInstructions,
+                setInstructions,
+                setOriginalInstructions,
+                false,
+              )
+            }
             placeholder="e.g., Take with food"
             placeholderTextColor="#999"
             multiline
@@ -600,7 +751,7 @@ const MedicationReviewScreen: React.FC<Props> = ({route, navigation}) => {
           />
         </View>
 
-        {/* Raw OCR Text (Collapsible) */}
+        {/* Raw OCR Text */}
         <View style={styles.rawTextContainer}>
           <Text style={styles.rawTextLabel}>Raw OCR Text:</Text>
           <Text style={styles.rawText}>{rawOcrText}</Text>
@@ -632,7 +783,7 @@ const styles = StyleSheet.create({
     padding: 10,
     marginBottom: 20,
     shadowColor: '#000',
-    shadowOffset: {width: 0, height: 2},
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,

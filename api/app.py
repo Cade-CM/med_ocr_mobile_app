@@ -403,12 +403,6 @@ def process_ocr_detailed():
                 best_rotation_conf = conf
                 best_rotation_img = rot_img
                 best_rotation_name = name
-            
-            # OPTIMIZATION: Early exit if confidence > 90%
-            if best_rotation_conf > 90:
-                log(f"Early exit: {name} has {best_rotation_conf:.1f}% confidence")
-                print(f"Early exit at {name} with {best_rotation_conf:.1f}% confidence")
-                break
         
         # Print all rotation scores for debugging
         print("\n=== ROTATION SCORES ===")
@@ -461,15 +455,6 @@ def process_ocr_detailed():
         for future in as_completed(futures):
             text, conf, method = future.result()
             results.append((text, conf, method))
-            
-            # OPTIMIZATION: Early exit if we hit >92% confidence
-            if conf > 92:
-                log(f"Early exit: {method} has {conf:.1f}% confidence")
-                # Cancel remaining futures
-                for f in futures:
-                    if not f.done():
-                        f.cancel()
-                break
         
         # Pick the result with highest confidence
         best_result = max(results, key=lambda x: x[1])

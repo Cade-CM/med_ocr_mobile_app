@@ -5,6 +5,9 @@ export interface SignupRequest {
   email?: string;
   display_name?: string;
   user_key: string;
+  password?: string;
+  first_name?: string;
+  last_name?: string;
 }
 
 export interface UserResponse {
@@ -12,6 +15,8 @@ export interface UserResponse {
   user_key: string;
   email?: string;
   display_name?: string;
+  first_name?: string;
+  last_name?: string;
   created_at?: string;
   updated_at?: string;
 }
@@ -42,6 +47,9 @@ export interface MedicationCreate {
   frequency_text?: string;
   qty_text?: string;
   refills_text?: string;
+  // add these two so MedicationReviewScreen payload typechecks
+  medication_key?: string;
+  id?: number | string;
 }
 
 export interface Medication {
@@ -55,6 +63,7 @@ export interface Medication {
   frequency_text?: string;
   qty_text?: string;
   refills_text?: string;
+  medication_key?: string;
   is_active?: boolean;
   created_at?: string;
   updated_at?: string;
@@ -85,16 +94,34 @@ export interface MedEvent {
 
 // User Endpoints
 export async function signupUser(request: SignupRequest): Promise<UserResponse> {
+  // Only send fields present on the signup page
+  const signupPayload: Partial<SignupRequest> = {
+    email: request.email,
+    password: request.password,
+    user_key: request.user_key,
+    // display_name is omitted during signup
+  };
+  console.log('signupUser request body:', signupPayload);
+
   const res = await fetch(`${BACKEND_API_URL}/api/signup`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(request),
+    body: JSON.stringify(signupPayload),
   });
+
+  const text = await res.text();
+  console.log('signupUser raw response:', res.status, text);
+
   if (!res.ok) {
-    const errorBody = await res.json().catch(() => null);
-    throw new Error(`Signup failed: ${res.status} ${JSON.stringify(errorBody)}`);
+    try {
+      const json = JSON.parse(text);
+      throw new Error(json.detail || `Signup failed: ${res.status}`);
+    } catch {
+      throw new Error(`Signup failed: ${res.status} ${text}`);
+    }
   }
-  return res.json();
+
+  return JSON.parse(text);
 }
 
 export async function updateUserProfile(payload: Partial<UserProfile> & { user_key: string }): Promise<UserProfile> {
@@ -115,6 +142,20 @@ export async function fetchUserProfile(user_key: string): Promise<UserProfile> {
   if (!res.ok) {
     const errorBody = await res.json().catch(() => null);
     throw new Error(`Fetch profile failed: ${res.status} ${JSON.stringify(errorBody)}`);
+  }
+  return res.json();
+}
+
+// Login endpoint
+export async function loginUser(email: string, password: string): Promise<UserResponse> {
+  const res = await fetch(`${BACKEND_API_URL}/api/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) {
+    const errorBody = await res.json().catch(() => null);
+    throw new Error(`Login failed: ${res.status} ${JSON.stringify(errorBody)}`);
   }
   return res.json();
 }

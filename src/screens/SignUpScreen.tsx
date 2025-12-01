@@ -4,7 +4,6 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  StyleSheet,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -16,9 +15,8 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '@types';
 import { MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Constants from 'expo-constants';
-import { StorageService } from '@services/StorageService';
 import { signupUser, UserResponse } from '@services/BackendService';
+import { authStyles as styles } from '../styles/authStyles';
 
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SignUp'>;
@@ -30,6 +28,7 @@ const SignUpScreen: React.FC<Props> = ({ navigation }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [timeoutError, setTimeoutError] = useState(false);
 
 
     // Google Sign-In logic temporarily disabled due to syntax errors
@@ -67,26 +66,63 @@ const SignUpScreen: React.FC<Props> = ({ navigation }) => {
     // };
 
   const handleSignUp = async () => {
-    setIsLoading(true);
-    try {
+      if (!email.trim()) {
+        Alert.alert('Missing Email', 'Please enter your email address.');
+        return;
+      }
       const trimmedEmail = email.trim().toLowerCase();
-      // Generate a de-identified user_key
-      const user_key = `USR_${Date.now()}_${Math.random().toString(36).substr(2, 12)}`;
-      const request = { email: trimmedEmail, display_name: '', user_key };
-      const user: UserResponse = await signupUser(request);
-      await AsyncStorage.setItem('userPassword', password);
-      await AsyncStorage.setItem('isLoggedIn', 'true');
-      await AsyncStorage.setItem('authMethod', 'email');
-      await AsyncStorage.setItem('user_key', user.user_key);
-      await AsyncStorage.setItem('user_id', user.id.toString());
-      console.log('Sign up successful, user:', user);
-      navigation.replace('ProfileSetup', { email: trimmedEmail, authMethod: 'email' });
-    } catch (error) {
-      console.error('Error during sign up:', error);
-      Alert.alert('Error', 'Failed to create account. Please try again.');
-    } finally {
-      setIsLoading(false);
-    }
+      const emailRegex = /\S+@\S+\.\S+/;
+      if (!emailRegex.test(trimmedEmail)) {
+        Alert.alert('Invalid Email', 'Please enter a valid email address.');
+        return;
+      }
+      if (!password) {
+        Alert.alert('Missing Password', 'Please enter a password.');
+        return;
+      }
+      if (password.length < 8) {
+        Alert.alert('Weak Password', 'Password should be at least 8 characters long.');
+        return;
+      }
+      if (password !== confirmPassword) {
+        Alert.alert('Password Mismatch', 'Passwords do not match.');
+        return;
+      }
+      setIsLoading(true);
+      setTimeoutError(false);
+      try {
+        const user_key = `USR_${Date.now()}_${Math.random().toString(36).substr(2, 12)}`;
+        const request = {
+          email: trimmedEmail,
+          display_name: '',
+          user_key,
+          password,
+          first_name: '',
+          last_name: ''
+        };
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => {
+          setTimeoutError(true);
+          reject(new Error('Request timed out. Please check your internet connection and try again.'));
+        }, 10000));
+        const user: UserResponse = await Promise.race([signupUser(request), timeoutPromise]);
+        await AsyncStorage.setItem('isLoggedIn', 'true');
+        await AsyncStorage.setItem('authMethod', 'email');
+        await AsyncStorage.setItem('user_key', user.user_key);
+        await AsyncStorage.setItem('user_id', user.id.toString());
+        console.log('Sign up successful, user:', user);
+        navigation.replace('ProfileSetup', { email: trimmedEmail, authMethod: 'email' });
+      } catch (error: any) {
+        console.error('Error during sign up:', error);
+        let message = 'Failed to create account. Please try again.';
+        if (timeoutError) {
+          message = 'Sign-up request timed out. Please check your internet connection and try again.';
+        } else if (error?.message) {
+          message = error.message;
+        }
+        Alert.alert('Error', message);
+      } finally {
+        setIsLoading(false);
+      }
   };
 
   const handleAppleSignIn = async () => {
@@ -122,6 +158,14 @@ const SignUpScreen: React.FC<Props> = ({ navigation }) => {
             <Text style={styles.title}>MedBuddy</Text>
             <Text style={styles.subtitle}>Create your account</Text>
           </View>
+
+          {/* Show loading spinner if signing up */}
+          {isLoading && (
+            <View style={{ alignItems: 'center', marginVertical: 16 }}>
+              <ActivityIndicator size="large" color="#007AFF" />
+              <Text style={{ marginTop: 8 }}>Creating account...</Text>
+            </View>
+          )}
 
           {/* Sign Up Form */}
           <View style={styles.formContainer}>
@@ -190,16 +234,16 @@ const SignUpScreen: React.FC<Props> = ({ navigation }) => {
             </View>
 
             <TouchableOpacity
-              style={[styles.signUpButton, isLoading && styles.disabledButton]}
+              style={[styles.primaryButton, isLoading && styles.disabledButton]}
               onPress={handleSignUp}
               disabled={isLoading}
             >
-              <Text style={styles.signUpButtonText}>
+              <Text style={styles.primaryButtonText}>
                 {isLoading ? 'Creating Account...' : 'Sign Up'}
               </Text>
             </TouchableOpacity>
 
-            {/* Divider and Social Sign-In */}
+            {/* Divider and Social Sign-In - Currently disabled */}
             {/* <View style={styles.dividerContainer}>
               <View style={styles.divider} />
               <Text style={styles.dividerText}>or sign up with</Text>
@@ -213,7 +257,7 @@ const SignUpScreen: React.FC<Props> = ({ navigation }) => {
                 disabled={isLoading}
               >
                 <View style={[styles.socialCircle, styles.googleCircle]}>
-                  <Text style={styles.googleText}>G</Text>
+                  <Text style={styles.socialIconText}>G</Text>
                 </View>
               </TouchableOpacity>
 
@@ -223,7 +267,7 @@ const SignUpScreen: React.FC<Props> = ({ navigation }) => {
                 disabled={isLoading}
               >
                 <View style={[styles.socialCircle, styles.appleCircle]}>
-                  <Text style={styles.googleText}>A</Text>
+                  <Text style={styles.socialIconText}>A</Text>
                 </View>
               </TouchableOpacity>
             </View> */}
@@ -249,173 +293,5 @@ const SignUpScreen: React.FC<Props> = ({ navigation }) => {
     </KeyboardAvoidingView>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F5F5F5',
-  },
-  scrollContent: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    paddingVertical: 20,
-  },
-  content: {
-    flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 30,
-  },
-  logoContainer: {
-    alignItems: 'center',
-    marginBottom: 40,
-    marginTop: 60,
-  },
-  logoImage: {
-    width: 80,
-    height: 80,
-    tintColor: '#007AFF',
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#007AFF',
-    marginTop: 15,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#666',
-    marginTop: 5,
-  },
-  formContainer: {
-    backgroundColor: 'white',
-    borderRadius: 15,
-    padding: 25,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  label: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 8,
-    marginTop: 10,
-  },
-  input: {
-    backgroundColor: '#F9F9F9',
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    borderRadius: 10,
-    padding: 15,
-    fontSize: 16,
-    marginBottom: 15,
-  },
-  passwordContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F9F9F9',
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    borderRadius: 10,
-    marginBottom: 15,
-  },
-  passwordInput: {
-    flex: 1,
-    padding: 15,
-    fontSize: 16,
-  },
-  eyeIcon: {
-    padding: 10,
-    paddingRight: 15,
-  },
-  signUpButton: {
-    backgroundColor: '#007AFF',
-    borderRadius: 10,
-    padding: 16,
-    alignItems: 'center',
-    marginTop: 10,
-    minHeight: 52,
-    justifyContent: 'center',
-  },
-  disabledButton: {
-    opacity: 0.6,
-  },
-  signUpButtonText: {
-    color: 'white',
-    fontSize: 18,
-    fontWeight: '600',
-  },
-  dividerContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 25,
-  },
-  divider: {
-    flex: 1,
-    height: 1,
-    backgroundColor: '#E0E0E0',
-  },
-  dividerText: {
-    color: '#999',
-    fontSize: 14,
-    marginHorizontal: 15,
-  },
-  socialButtonsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 20,
-  },
-  socialButton: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  socialCircle: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
-    elevation: 3,
-  },
-  googleCircle: {
-    backgroundColor: '#DB4437',
-  },
-  appleCircle: {
-    backgroundColor: '#000000',
-  },
-  googleText: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: 'white',
-  },
-  toggleContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 25,
-    gap: 5,
-  },
-  toggleText: {
-    color: '#666',
-    fontSize: 14,
-  },
-  toggleLink: {
-    color: '#007AFF',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  footerText: {
-    textAlign: 'center',
-    color: '#999',
-    fontSize: 12,
-    marginTop: 30,
-  },
-});
 
 export default SignUpScreen;

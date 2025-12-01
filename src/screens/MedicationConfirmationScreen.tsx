@@ -68,9 +68,24 @@ const MedicationConfirmationScreen: React.FC<Props> = ({ route, navigation }) =>
       }));
       const med = medications.find(m => m.id === medicationId);
       if (!med) {
-        Alert.alert('Error', 'Medication not found');
-        navigation.goBack();
-        return;
+        console.warn('MedicationConfirmationScreen: Medication not found, attempting to add from backend.');
+        // Attempt to add medication from backend if possible
+        if (medicationId) {
+          const newMed = backendMeds.find(m => m.id === medicationId);
+          if (newMed) {
+            await StorageService.saveMedication(mapBackendMedication(newMed));
+            setMedication(mapBackendMedication(newMed));
+            Alert.alert('Info', 'Medication not found locally, but added from backend.');
+          } else {
+            Alert.alert('Error', 'Medication not found in backend.');
+            navigation.goBack();
+            return;
+          }
+        } else {
+          Alert.alert('Error', 'Medication not found and cannot be added.');
+          navigation.goBack();
+          return;
+        }
       }
       setMedication(med);
       // Load preferences

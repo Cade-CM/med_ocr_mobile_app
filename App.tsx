@@ -25,6 +25,9 @@ import MedicationConfirmationScreen from './src/screens/MedicationConfirmationSc
 import AdherenceHistoryScreen from './src/screens/AdherenceHistoryScreen';
 import DashboardScreen from './src/screens/DashboardScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
+import EditProfileScreen from './src/screens/EditProfileScreen';
+import ChangePasswordScreen from './src/screens/ChangePasswordScreen';
+import AsyncStorageDebugScreen from './src/screens/AsyncStorageDebugScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator();
@@ -222,6 +225,33 @@ export default function App() {
             component={AdherenceHistoryScreen}
             options={{
               title: 'Adherence History',
+              headerStyle: { backgroundColor: '#007AFF' },
+              headerTintColor: 'white',
+            }}
+          />
+          <Stack.Screen
+            name="EditProfileScreen"
+            component={EditProfileScreen}
+            options={{
+              title: 'Edit Profile',
+              headerStyle: { backgroundColor: '#007AFF' },
+              headerTintColor: 'white',
+            }}
+          />
+          <Stack.Screen
+            name="ChangePasswordScreen"
+            component={ChangePasswordScreen}
+            options={{
+              title: 'Change Password',
+              headerStyle: { backgroundColor: '#007AFF' },
+              headerTintColor: 'white',
+            }}
+          />
+          <Stack.Screen
+            name="AsyncStorageDebugScreen"
+            component={AsyncStorageDebugScreen}
+            options={{
+              title: 'AsyncStorage Debug',
               headerStyle: { backgroundColor: '#007AFF' },
               headerTintColor: 'white',
             }}

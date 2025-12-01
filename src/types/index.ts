@@ -8,7 +8,7 @@
 export interface Medication {
   id: string;
   user_key: string;
-  medication_key?: string;
+  password: string; // Adding password field to match backend contract
   patientName?: string;
   drugName: string;
   strength?: string;

@@ -50,30 +50,60 @@ const MedicationScheduleScreen: React.FC<Props> = ({route, navigation}) => {
 
     try {
       if (editMode) {
-        // Update existing medication
-        await StorageService.updateMedication(finalMedication);
-        
-        Alert.alert(
-          'Success',
-          'Medication updated successfully!',
-          [
-            {
-              text: 'OK',
-              onPress: () => {
-                // Navigate back to Home screen and trigger refresh
-                navigation.reset({
-                  index: 0,
-                  routes: [{ name: 'Home' }],
-                });
+        // Try to update existing medication
+        try {
+          await StorageService.updateMedication(finalMedication);
+          Alert.alert(
+            'Success',
+            'Medication updated successfully!',
+            [
+              {
+                text: 'OK',
+                onPress: () => {
+                  navigation.reset({
+                    index: 0,
+                    routes: [{ name: 'Home' }],
+                  });
+                },
               },
-            },
-          ],
-        );
+            ],
+          );
+        } catch (err) {
+          // If not found, fetch from backend and add as new
+          try {
+            const userKey = medication.user_key || (await import('../services/StorageService').then(m => m.StorageService.getCurrentUserId()));
+            const medsFromBackend = await import('../services/BackendService').then(m => m.getMedications(userKey));
+            const dbMed = medsFromBackend.find(m => String(m.id) === String(medication.id));
+            if (dbMed) {
+              await StorageService.saveMedication({ ...dbMed, reminderTimes: adjustedTimes });
+              Alert.alert('Success', 'Medication added from database!', [
+                {
+                  text: 'OK',
+                  onPress: () => {
+                    navigation.reset({
+                      index: 0,
+                      routes: [{ name: 'Home' }],
+                    });
+                  },
+                },
+              ]);
+            } else {
+              console.warn('MedicationScheduleScreen: Medication not found in database, attempting to add from backend.');
+              // Attempt to add medication from backend if possible
+              if (medication) {
+                await StorageService.saveMedication({ ...medication, reminderTimes: adjustedTimes });
+                Alert.alert('Info', 'Medication not found in database, but added locally.');
+              } else {
+                Alert.alert('Error', 'Medication not found in database and cannot be added.');
+              }
+            }
+          } catch (dbErr) {
+            Alert.alert('Error', 'Failed to fetch medication from database.');
+          }
+        }
       } else {
         // Save new medication first
         await StorageService.saveMedication(finalMedication);
-        
-        // Navigate to Link RFID screen
         navigation.navigate('LinkRFID', {
           medication: finalMedication,
         });

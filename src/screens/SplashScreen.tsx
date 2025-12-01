@@ -51,7 +51,7 @@ const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
       >
         <Image
           source={require('../../assets/MedBuddyLogo.png')}
-          style={styles.logo}
+          style={[styles.logo, { tintColor: '#fff' }]}
         />
         <Text style={styles.title}>MedBuddy</Text>
       </Animated.View>

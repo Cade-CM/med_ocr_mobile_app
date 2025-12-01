@@ -1,30 +1,19 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {Medication, AdherenceRecord, UserPreferences, PatientStats} from '@types';
+import { BACKEND_API_URL } from '@config/api';
+import * as BackendService from './BackendService';
 
 /**
  * Storage Service - Handles local data persistence
+ * Backend API calls are delegated to BackendService for consistency
  */
 export class StorageService {
       /**
        * Register or fetch user from backend
+       * @deprecated Use BackendService.signupUser directly
        */
       static async signupUser(email: string, displayName: string, userKey: string): Promise<any> {
-        try {
-          const response = await fetch('http://10.0.0.26:8000/api/signup', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, display_name: displayName, user_key: userKey }),
-          });
-          if (!response.ok) {
-            const errorText = await response.text();
-            console.error('Signup failed:', response.status, errorText);
-            throw new Error(`Signup failed: ${response.status} ${errorText}`);
-          }
-          return await response.json();
-        } catch (error) {
-          console.error('Error signing up user:', error);
-          throw error;
-        }
+        return BackendService.signupUser({ email, display_name: displayName, user_key: userKey });
       }
 
       /**
@@ -32,7 +21,7 @@ export class StorageService {
        */
       static async saveUserSettings(userKey: string, settings: any): Promise<void> {
         try {
-          const response = await fetch('http://10.0.0.26:8000/api/user_settings', {
+          const response = await fetch(`${BACKEND_API_URL}/api/user_settings`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ user_key: userKey, ...settings }),
@@ -53,7 +42,7 @@ export class StorageService {
        */
       static async getUserSettings(userKey: string): Promise<any> {
         try {
-          const response = await fetch(`http://10.0.0.26:8000/api/user_settings?user_key=${userKey}`);
+          const response = await fetch(`${BACKEND_API_URL}/api/user_settings?user_key=${userKey}`);
           if (!response.ok) {
             const errorText = await response.text();
             console.error('Get user settings failed:', response.status, errorText);
@@ -68,84 +57,35 @@ export class StorageService {
 
       /**
        * Save medication to backend (FastAPI contract)
+       * @deprecated Use BackendService.createMedication directly
        */
       static async saveMedicationToBackend(medication: any, userKey: string): Promise<any> {
-        try {
-          // Only send medication_key if it exists
-          const payload: any = {
-            user_key: userKey,
-            ...medication,
-          };
-          if (medication.medication_key) {
-            payload.medication_key = medication.medication_key;
-          }
-          const response = await fetch('http://10.0.0.26:8000/api/medications', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-          });
-          if (!response.ok) {
-            const errorText = await response.text();
-            console.error('Save medication failed:', response.status, errorText);
-            throw new Error(`Save medication failed: ${response.status} ${errorText}`);
-          }
-          return await response.json();
-        } catch (error) {
-          console.error('Error saving medication to backend:', error);
-          throw error;
-        }
+        return BackendService.createMedication({ user_key: userKey, ...medication });
       }
 
       /**
        * Get all medications for user from backend
+       * @deprecated Use BackendService.fetchMedications directly
        */
       static async getMedicationsFromBackend(userKey: string): Promise<any[]> {
-        try {
-          const response = await fetch(`http://10.0.0.26:8000/api/medications?user_key=${userKey}`);
-          if (!response.ok) {
-            const errorText = await response.text();
-            console.error('Get medications failed:', response.status, errorText);
-            throw new Error(`Get medications failed: ${response.status} ${errorText}`);
-          }
-          return await response.json();
-        } catch (error) {
-          console.error('Error getting medications from backend:', error);
-          throw error;
-        }
+        return BackendService.fetchMedications(userKey);
       }
 
       /**
        * Log a medication event (adherence) to backend
+       * @deprecated Use BackendService.logMedEvent directly
        */
       static async logMedEvent(event: any, userKey: string): Promise<any> {
-        try {
-          const response = await fetch('http://10.0.0.26:8000/api/events', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_key: userKey, ...event }),
-          });
-          if (!response.ok) {
-            const errorText = await response.text();
-            console.error('Log med event failed:', response.status, errorText);
-            throw new Error(`Log med event failed: ${response.status} ${errorText}`);
-          }
-          return await response.json();
-        } catch (error) {
-          console.error('Error logging med event:', error);
-          throw error;
-        }
+        return BackendService.logMedEvent({ user_key: userKey, ...event });
       }
+
     /**
      * Save an event (sync to backend, keep last 7 days locally)
      */
     static async saveEvent(event: any): Promise<void> {
       try {
         // Sync to backend
-        await fetch('http://10.0.0.26:8000/api/events', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(event),
-        });
+        await BackendService.logMedEvent(event);
         // Local backup
         const events = await this.getEvents();
         const index = events.findIndex(e => e.id === event.id);
@@ -189,10 +129,14 @@ export class StorageService {
      */
     static async deleteEvent(eventId: string): Promise<void> {
       try {
-        // Sync to backend
-        await fetch(`http://10.0.0.26:8000/api/events/${eventId}`, {
-          method: 'DELETE',
-        });
+        // Sync to backend - Note: Backend may not have delete endpoint, handle gracefully
+        try {
+          await fetch(`${BACKEND_API_URL}/api/events/${eventId}`, {
+            method: 'DELETE',
+          });
+        } catch (e) {
+          console.warn('Backend delete event failed (may not be implemented):', e);
+        }
         // Local update
         const events = await this.getEvents();
         const safeEvents = Array.isArray(events) ? events : [];
@@ -208,9 +152,10 @@ export class StorageService {
     ADHERENCE_RECORDS: '@adherence_records',
     USER_PREFERENCES: '@user_preferences',
     PATIENT_NAMES: '@patient_names',
+    PROFILE_DATA: '@profile_data',
     CURRENT_USER: '@current_user_id',
     USER_LOOKUP: '@user_lookup', // Maps user_id to email for login only
-    PROFILE_DATA: '@profile_data', // Stores profile info by user_id
+    LOCAL_USER_PROFILE: '@localUserProfile', // Local profile storage
   };
 
   /**
@@ -310,27 +255,20 @@ export class StorageService {
       const { user_key, ...profileData } = data;
       if (!user_key) throw new Error('No user_key provided');
 
-      // Update backend profile
-      // Assuming backend expects display_name, email, etc.
-      // You may need to adjust this payload to match backend contract
-      const backendPayload: any = {
+      // Update backend profile using BackendService
+      const backendPayload = {
         user_key,
-        display_name: data.display_name || data.nickname || `${data.firstName || ''} ${data.lastName || ''}`.trim(),
+        first_name: data.firstName,
+        last_name: data.lastName,
+        nickname: data.nickname,
+        age: data.age ? parseInt(data.age) : undefined,
+        gender: data.gender,
         email: data.email,
-        // Add other fields as needed
+        display_name: data.display_name || data.nickname || `${data.firstName || ''} ${data.lastName || ''}`.trim(),
       };
-      // Call backend API to update profile
+      
       try {
-        await import('./BackendService').then(({ updateUserProfile }) => updateUserProfile({
-          user_key,
-          first_name: data.firstName,
-          last_name: data.lastName,
-          nickname: data.nickname,
-          age: data.age ? parseInt(data.age) : undefined,
-          gender: data.gender,
-          email: data.email,
-          display_name: backendPayload.display_name,
-        }));
+        await BackendService.updateUserProfile(backendPayload);
       } catch (err) {
         console.error('Backend profile update failed:', err);
       }
@@ -349,23 +287,6 @@ export class StorageService {
     } catch (error) {
       console.error('Error updating user profile:', error);
       throw error;
-    }
-  }
-
-  /**
-   * Get user profile data by user ID
-   */
-  static async getUserProfile(userId?: string): Promise<any | null> {
-    try {
-      const id = userId || await this.getCurrentUserId();
-      if (!id) return null;
-      
-      const profileKey = `${this.KEYS.PROFILE_DATA}_${id}`;
-      const data = await AsyncStorage.getItem(profileKey);
-      return data ? JSON.parse(data) : null;
-    } catch (error) {
-      console.error('Error getting user profile:', error);
-      return null;
     }
   }
 
@@ -438,17 +359,18 @@ export class StorageService {
     try {
       const medications = await this.getMedications();
       const index = medications.findIndex(m => m.id === medication.id);
-      
       if (index >= 0) {
         medications[index] = medication;
-        const key = await this.getUserKey(this.KEYS.MEDICATIONS);
-        await AsyncStorage.setItem(
-          key,
-          JSON.stringify(medications),
-        );
       } else {
-        throw new Error('Medication not found');
+        // If not found, add as new medication
+        medications.push(medication);
+        console.warn('Medication not found locally, adding as new:', medication);
       }
+      const key = await this.getUserKey(this.KEYS.MEDICATIONS);
+      await AsyncStorage.setItem(
+        key,
+        JSON.stringify(medications),
+      );
     } catch (error) {
       console.error('Error updating medication:', error);
       throw error;
@@ -464,13 +386,21 @@ export class StorageService {
       const data = await AsyncStorage.getItem(key);
       if (!data) return [];
       
-      const medications = JSON.parse(data);
+      let medications: any = [];
+      try {
+        medications = JSON.parse(data);
+      } catch (e) {
+        medications = [];
+      }
+      if (!Array.isArray(medications)) return [];
       // Convert date strings back to Date objects
       return medications.map((med: any) => ({
         ...med,
-        startDate: new Date(med.startDate),
+        startDate: med.startDate ? new Date(med.startDate) : undefined,
         endDate: med.endDate ? new Date(med.endDate) : undefined,
-        reminderTimes: med.reminderTimes.map((time: string) => new Date(time)),
+        reminderTimes: Array.isArray(med.reminderTimes)
+          ? med.reminderTimes.map((time: string) => new Date(time))
+          : [],
       }));
     } catch (error) {
       console.error('Error getting medications:', error);
@@ -690,101 +620,6 @@ export class StorageService {
   }
 
   /**
-   * Get all user profiles in the system
-   */
-  static async getAllUserProfiles(): Promise<Array<{
-    userId: string;
-    firstName: string;
-    lastName: string;
-    nickname?: string;
-    age?: string;
-    gender?: string;
-  }>> {
-    try {
-      const allKeys = await AsyncStorage.getAllKeys();
-      const profiles = [];
-      
-      // Find all profile data keys
-      for (const key of allKeys) {
-        if (key.startsWith(`${this.KEYS.PROFILE_DATA}_`)) {
-          const userId = key.replace(`${this.KEYS.PROFILE_DATA}_`, '');
-          const data = await AsyncStorage.getItem(key);
-          if (data) {
-            const profile = JSON.parse(data);
-            profiles.push({
-              userId,
-              firstName: profile.firstName,
-              lastName: profile.lastName,
-              nickname: profile.nickname,
-              age: profile.age,
-              gender: profile.gender,
-            });
-          }
-        }
-      }
-      
-      return profiles;
-    } catch (error) {
-      console.error('Error getting all user profiles:', error);
-      return [];
-    }
-  }
-
-  /**
-   * Switch to a different user profile
-   */
-  static async switchUserProfile(userId: string): Promise<void> {
-    try {
-      const profile = await this.getUserProfile(userId);
-      if (!profile) {
-        throw new Error('User profile not found');
-      }
-      
-      // Set as current user
-      await this.setCurrentUserId(userId);
-      
-      console.log(`✅ Switched to user profile: ${profile.firstName} ${profile.lastName} (ID: ${userId})`);
-    } catch (error) {
-      console.error('Error switching user profile:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Get current user profile
-   */
-  static async getCurrentUserProfile(): Promise<{
-    userId: string;
-    firstName: string;
-    lastName: string;
-    nickname?: string;
-    age?: string;
-    gender?: string;
-    email?: string;
-  } | null> {
-    try {
-      const userId = await this.getCurrentUserId();
-      if (!userId) return null;
-      
-      const profile = await this.getUserProfile(userId);
-      if (!profile) return null;
-      
-      return {
-        userId,
-        firstName: profile.firstName,
-        lastName: profile.lastName,
-        nickname: profile.nickname,
-        age: profile.age,
-        gender: profile.gender,
-        email: profile.email, // Only exposed in profile view
-      };
-    } catch (error) {
-      console.error('Error getting current user profile:', error);
-      return null;
-    }
-  }
-
-  /**
    * Save a patient name to local database for future reference
    * Automatically prevents duplicates and assigns unique ID (de-identified)
    */
@@ -850,4 +685,92 @@ export class StorageService {
       return false;
     }
   }
+
+  /**
+   * Get user profile (firstName, lastName, email, etc.)
+   */
+  static async getUserProfile(): Promise<any | null> {
+    try {
+      const userId = await this.getCurrentUserId();
+      if (!userId) return null;
+      const profileKey = `${this.KEYS.PROFILE_DATA}_${userId}`;
+      const data = await AsyncStorage.getItem(profileKey);
+      return data ? JSON.parse(data) : null;
+    } catch (error) {
+      console.error('Error getting user profile:', error);
+      return null;
+    }
+  }
+
+  // ============================================
+  // Local User Profile Methods (migrated from UserLocalStorage)
+  // ============================================
+
+  /**
+   * Save local user profile
+   */
+  static async saveLocalUserProfile(profile: LocalUserProfile): Promise<void> {
+    await AsyncStorage.setItem(this.KEYS.LOCAL_USER_PROFILE, JSON.stringify(profile));
+  }
+
+  /**
+   * Get local user profile with fallback default
+   */
+  static async getLocalUserProfile(): Promise<LocalUserProfile | null> {
+    const data = await AsyncStorage.getItem(this.KEYS.LOCAL_USER_PROFILE);
+    if (data) {
+      return JSON.parse(data);
+    } else {
+      // Fallback: create a default profile if missing
+      const defaultProfile: LocalUserProfile = {
+        firstName: '',
+        lastName: '',
+        email: '',
+        displayName: '',
+      };
+      await AsyncStorage.setItem(this.KEYS.LOCAL_USER_PROFILE, JSON.stringify(defaultProfile));
+      return defaultProfile;
+    }
+  }
+
+  /**
+   * Update local user profile (partial update)
+   */
+  static async updateLocalUserProfile(updates: Partial<LocalUserProfile>): Promise<void> {
+    const current = await this.getLocalUserProfile();
+    const updated = { ...current, ...updates };
+    await this.saveLocalUserProfile(updated as LocalUserProfile);
+  }
+
+  /**
+   * Sync local user profile to backend
+   */
+  static async syncLocalUserProfile(userKey: string): Promise<any> {
+    const profile = await this.getLocalUserProfile();
+    if (!profile) return;
+    const payload: any = {
+      user_key: userKey,
+      first_name: profile.firstName,
+      last_name: profile.lastName,
+      email: profile.email,
+      display_name: profile.displayName,
+    };
+    if (profile.nickname) payload.nickname = profile.nickname;
+    if (profile.age !== undefined) payload.age = profile.age;
+    if (profile.gender) payload.gender = profile.gender;
+    return BackendService.updateUserProfile(payload);
+  }
+}
+
+/**
+ * Local user profile interface (previously in UserLocalStorage)
+ */
+export interface LocalUserProfile {
+  firstName: string;
+  lastName: string;
+  email: string;
+  displayName: string;
+  nickname?: string;
+  age?: number;
+  gender?: string;
 }

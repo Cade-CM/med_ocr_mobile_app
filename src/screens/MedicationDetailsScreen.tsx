@@ -10,6 +10,8 @@ import {
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList} from '@types';
 import { deleteMedication } from '@services/BackendService';
+import { MedicationDB } from '../services/MedicationLocalDB';
+import { StorageService } from '../services/StorageService';
 import {SchedulingService} from '@services/SchedulingService';
 import {MaterialIcons as Icon} from '@expo/vector-icons';
 
@@ -66,6 +68,7 @@ const MedicationDetailsScreen: React.FC<Props> = ({route, navigation}) => {
               const identifier = raw.medication_key || medication.medication_key || medication.id;
               console.log('Deleting medication with identifier:', identifier);
               await deleteMedication(identifier);
+              await StorageService.deleteMedication(String(medication.id));
               navigation.goBack();
             } catch (error) {
               console.error('Error deleting medication:', error);

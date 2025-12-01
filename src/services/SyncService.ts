@@ -1,12 +1,13 @@
-import {LOCAL_OCR_API_URL} from '@config/api';
-import {Medication, AdherenceRecord} from '@types';
-import {StorageService} from './StorageService';
+import { BACKEND_API_URL } from '@config/api';
+import { Medication, AdherenceRecord } from '@types';
+import { StorageService } from './StorageService';
+import * as BackendService from './BackendService';
 
 /**
  * Sync Service - Synchronizes data between local storage and backend
+ * Uses BackendService for API calls to avoid duplication
  */
 export class SyncService {
-  private static readonly API_BASE = LOCAL_OCR_API_URL + '/api';
   
   /**
    * Sync all medications to backend
@@ -31,20 +32,16 @@ export class SyncService {
    */
   static async syncMedicationToBackend(medication: Medication): Promise<void> {
     try {
-      const response = await fetch(`${this.API_BASE}/medications`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(medication),
+      await BackendService.createMedication({
+        user_key: medication.user_key,
+        drug_name: medication.drugName,
+        strength: medication.strength,
+        instruction: medication.instructions,
+        frequency_text: medication.frequency,
+        qty_text: medication.quantity,
+        refills_text: medication.refills,
       });
-      
-      if (!response.ok) {
-        throw new Error(`Failed to sync medication: ${response.statusText}`);
-      }
-      
-      const data = await response.json();
-      console.log(`✓ Synced medication: ${medication.drugName} (${data.action})`);
+      console.log(`✓ Synced medication: ${medication.drugName}`);
     } catch (error) {
       console.error('Error syncing medication:', error);
       throw error;
@@ -54,39 +51,39 @@ export class SyncService {
   /**
    * Fetch all medications from backend and merge with local storage
    */
-  static async syncMedicationsFromBackend(): Promise<void> {
+  static async syncMedicationsFromBackend(userKey: string): Promise<void> {
     try {
-      const response = await fetch(`${this.API_BASE}/medications`);
+      const backendMeds = await BackendService.fetchMedications(userKey);
+      const localMedications = await StorageService.getMedications();
+      const localMedicationIds = new Set(localMedications.map(m => m.id));
       
-      if (!response.ok) {
-        throw new Error(`Failed to fetch medications: ${response.statusText}`);
-      }
-      
-      const data = await response.json();
-      
-      if (data.success && data.medications) {
-        const localMedications = await StorageService.getMedications();
-        const localMedicationIds = new Set(localMedications.map(m => m.id));
-        
-        // Merge backend medications with local
-        let addedCount = 0;
-        for (const backendMed of data.medications) {
-          if (!localMedicationIds.has(backendMed.id)) {
-            // Convert date strings back to Date objects
-            const medication: Medication = {
-              ...backendMed,
-              startDate: new Date(backendMed.startDate),
-              endDate: backendMed.endDate ? new Date(backendMed.endDate) : undefined,
-              reminderTimes: backendMed.reminderTimes.map((time: string) => new Date(time)),
-            };
-            
-            await StorageService.saveMedication(medication);
-            addedCount++;
-          }
+      // Merge backend medications with local
+      let addedCount = 0;
+      for (const backendMed of backendMeds) {
+        const medId = backendMed.medication_key || String(backendMed.id);
+        if (!localMedicationIds.has(medId)) {
+          // Convert backend format to local format
+          const medication: Medication = {
+            id: medId,
+            user_key: backendMed.user_key,
+            password: '', // Required by type but not used
+            drugName: backendMed.drug_name || '',
+            strength: backendMed.strength,
+            dosage: backendMed.strength || '',
+            frequency: backendMed.frequency_text || '',
+            instructions: backendMed.instruction,
+            quantity: backendMed.qty_text,
+            refills: backendMed.refills_text,
+            reminderTimes: [],
+            startDate: new Date(),
+          };
+          
+          await StorageService.saveMedication(medication);
+          addedCount++;
         }
-        
-        console.log(`✓ Synced ${addedCount} new medications from backend`);
       }
+      
+      console.log(`✓ Synced ${addedCount} new medications from backend`);
     } catch (error) {
       console.error('Error syncing medications from backend:', error);
       throw error;
@@ -96,12 +93,12 @@ export class SyncService {
   /**
    * Sync adherence records to backend
    */
-  static async syncAdherenceToBackend(): Promise<void> {
+  static async syncAdherenceToBackend(userKey: string): Promise<void> {
     try {
       const records = await StorageService.getAdherenceRecords();
       
       for (const record of records) {
-        await this.syncAdherenceRecordToBackend(record);
+        await this.syncAdherenceRecordToBackend(record, userKey);
       }
       
       console.log(`✓ Synced ${records.length} adherence records to backend`);
@@ -114,20 +111,15 @@ export class SyncService {
   /**
    * Sync a single adherence record to backend
    */
-  static async syncAdherenceRecordToBackend(record: AdherenceRecord): Promise<void> {
+  static async syncAdherenceRecordToBackend(record: AdherenceRecord, userKey: string): Promise<void> {
     try {
-      const response = await fetch(`${this.API_BASE}/adherence`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(record),
+      await BackendService.logMedEvent({
+        user_key: userKey,
+        medication_id: record.medicationId,
+        event_type: record.status,
+        event_time: record.takenTime?.toISOString() || record.scheduledTime.toISOString(),
+        source: record.confirmationMethod || 'app',
       });
-      
-      if (!response.ok) {
-        throw new Error(`Failed to sync adherence record: ${response.statusText}`);
-      }
-      
       console.log(`✓ Synced adherence record: ${record.id}`);
     } catch (error) {
       console.error('Error syncing adherence record:', error);
@@ -140,14 +132,7 @@ export class SyncService {
    */
   static async deleteMedicationFromBackend(medicationId: string): Promise<void> {
     try {
-      const response = await fetch(`${this.API_BASE}/medications/${medicationId}`, {
-        method: 'DELETE',
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Failed to delete medication: ${response.statusText}`);
-      }
-      
+      await BackendService.deleteMedication(medicationId);
       console.log(`✓ Deleted medication from backend: ${medicationId}`);
     } catch (error) {
       console.error('Error deleting medication from backend:', error);
@@ -158,16 +143,16 @@ export class SyncService {
   /**
    * Full sync - push local changes and pull remote changes
    */
-  static async fullSync(): Promise<void> {
+  static async fullSync(userKey: string): Promise<void> {
     try {
       console.log('🔄 Starting full sync...');
       
       // Push local data to backend
       await this.syncMedicationsToBackend();
-      await this.syncAdherenceToBackend();
+      await this.syncAdherenceToBackend(userKey);
       
       // Pull remote data to local
-      await this.syncMedicationsFromBackend();
+      await this.syncMedicationsFromBackend(userKey);
       
       console.log('✅ Full sync completed');
     } catch (error) {
@@ -184,7 +169,7 @@ export class SyncService {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
       
-      const response = await fetch(`${LOCAL_OCR_API_URL}/health`, {
+      const response = await fetch(`${BACKEND_API_URL}/health`, {
         method: 'GET',
         signal: controller.signal,
       });
@@ -193,7 +178,7 @@ export class SyncService {
       
       if (response.ok) {
         const data = await response.json();
-        return data.status === 'healthy';
+        return data.status === 'healthy' || data.status === 'ok';
       }
       
       return false;
@@ -206,12 +191,12 @@ export class SyncService {
   /**
    * Auto-sync - Call this periodically (e.g., every 5 minutes)
    */
-  static async autoSync(): Promise<void> {
+  static async autoSync(userKey: string): Promise<void> {
     const isAvailable = await this.isBackendAvailable();
     
     if (isAvailable) {
       try {
-        await this.fullSync();
+        await this.fullSync(userKey);
       } catch (error) {
         console.error('Auto-sync failed:', error);
       }

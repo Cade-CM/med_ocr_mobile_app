@@ -6,6 +6,7 @@ import React, {
   useCallback,
   ReactNode,
 } from "react";
+import { BACKEND_API_URL } from '@config/api';
 
 // Adjust this to match your types
 export type Medication = {
@@ -32,9 +33,8 @@ type AppDataContextValue = {
 
 const AppDataContext = createContext<AppDataContextValue | undefined>(undefined);
 
-// TODO: set this from your config
-const API_BASE_URL = "http://10.0.0.26:8000";
-const WS_URL = "ws://10.0.0.26:8000/ws/updates";
+// WebSocket URL derived from backend URL
+const WS_URL = BACKEND_API_URL.replace(/^http/, 'ws') + '/ws/updates';
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -67,7 +67,7 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
     if (!userKey) return;
     try {
       const res = await fetch(
-        `${API_BASE_URL}/api/medications?user_key=${encodeURIComponent(userKey)}`
+        `${BACKEND_API_URL}/api/medications?user_key=${encodeURIComponent(userKey)}`
       );
       if (!res.ok) {
         console.warn("Failed to fetch medications", res.status);

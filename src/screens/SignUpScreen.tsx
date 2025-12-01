@@ -100,7 +100,7 @@ const SignUpScreen: React.FC<Props> = ({ navigation }) => {
           first_name: '',
           last_name: ''
         };
-        const timeoutPromise = new Promise((_, reject) => setTimeout(() => {
+        const timeoutPromise = new Promise<never>((_, reject) => setTimeout(() => {
           setTimeoutError(true);
           reject(new Error('Request timed out. Please check your internet connection and try again.'));
         }, 10000));

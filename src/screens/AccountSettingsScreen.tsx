@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { getLocalUserProfile, updateLocalUserProfile, syncLocalUserProfile } from '@services/UserLocalStorage';
-import { updateUserProfile } from '@services/BackendService';
+import { View, Text, TextInput, Button, Alert, StyleSheet } from 'react-native';
+import { StorageService } from '@services/StorageService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const AccountSettingsScreen: React.FC = () => {
@@ -17,7 +17,7 @@ const AccountSettingsScreen: React.FC = () => {
 
   useEffect(() => {
     (async () => {
-      const localProfile = await getLocalUserProfile();
+      const localProfile = await StorageService.getLocalUserProfile();
       if (localProfile) {
         setProfile({
           ...localProfile,
@@ -36,7 +36,7 @@ const AccountSettingsScreen: React.FC = () => {
       ...profile,
       age: profile.age ? parseInt(profile.age) : undefined,
     };
-    await updateLocalUserProfile(saveProfile);
+    await StorageService.updateLocalUserProfile(saveProfile);
     Alert.alert('Saved', 'Profile saved locally.');
   };
 
@@ -45,9 +45,9 @@ const AccountSettingsScreen: React.FC = () => {
     try {
       const user_key = await AsyncStorage.getItem('user_key');
       if (!user_key) throw new Error('No user_key found');
-      await syncLocalUserProfile(user_key, updateUserProfile);
+      await StorageService.syncLocalUserProfile(user_key);
       Alert.alert('Synced', 'Profile updated on server.');
-    } catch (error) {
+    } catch (error: any) {
       Alert.alert('Error', error?.message || 'Failed to sync profile.');
     } finally {
       setIsSyncing(false);

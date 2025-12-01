@@ -16,7 +16,6 @@ import { OCRService } from '@services/OCRService';
 import { createMedication, updateMedication, MedicationCreate } from '@services/BackendService';
 import { MaterialIcons as Icon } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getLocalUserProfile } from '../services/UserLocalStorage';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MedicationReview'>;
 

@@ -2,6 +2,7 @@
   "expo": {
     "name": "MedBuddy",
     "slug": "med-ocr-expo",
+    "scheme": "medbuddy",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -63,7 +64,15 @@
           "photosPermission": "Allow MedBuddy to save prescription photos.",
           "savePhotosPermission": "Allow MedBuddy to save prescription photos to your photo library."
         }
-      ]
+      ],
+      [
+        "react-native-vision-camera",
+        {
+          "cameraPermissionText": "Allow MedBuddy to access your camera for live label scanning with ML Kit OCR.",
+          "enableMicrophonePermission": false
+        }
+      ],
+      "expo-web-browser"
     ],
     "extra": {
       "eas": {

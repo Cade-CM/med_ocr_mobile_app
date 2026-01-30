@@ -5,32 +5,53 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { MaterialIcons } from '@expo/vector-icons';
 import { RootStackParamList } from './src/types';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ActivityIndicator, View, TouchableOpacity, Text } from 'react-native';
+import { TouchableOpacity, Text } from 'react-native';
+import { supabase } from './src/config/supabase';
 
-// Screens
-import SplashScreen from './src/screens/SplashScreen';
-import LoginScreen from './src/screens/LoginScreen';
-import SignUpScreen from './src/screens/SignUpScreen';
-import ProfileSetupScreen from './src/screens/ProfileSetupScreen';
-import HomeScreen from './src/screens/HomeScreen';
-import LabelCaptureScreen from './src/screens/LabelCaptureScreen';
-import MedicationReviewScreen from './src/screens/MedicationReviewScreen';
-import MedicationScheduleScreen from './src/screens/MedicationScheduleScreen';
-import MedicationDetailsScreen from './src/screens/MedicationDetailsScreen';
-import LinkRFIDScreen from './src/screens/LinkRFIDScreen';
-import ScheduleCalendarScreen from './src/screens/ScheduleCalendarScreen';
-import ScheduleSettingsScreen from './src/screens/ScheduleSettingsScreen';
-import MedicationConfirmationScreen from './src/screens/MedicationConfirmationScreen';
-import AdherenceHistoryScreen from './src/screens/AdherenceHistoryScreen';
-import DashboardScreen from './src/screens/DashboardScreen';
-import SettingsScreen from './src/screens/SettingsScreen';
-import EditProfileScreen from './src/screens/EditProfileScreen';
-import ChangePasswordScreen from './src/screens/ChangePasswordScreen';
-import AsyncStorageDebugScreen from './src/screens/AsyncStorageDebugScreen';
+// Screens - Auth
+import SplashScreen from './src/screens/auth/SplashScreen';
+import LoginScreen from './src/screens/auth/LoginScreen';
+import SignUpScreen from './src/screens/auth/SignUpScreen';
+import ProfileSetupScreen from './src/screens/auth/ProfileSetupScreen';
+
+// Screens - Medications
+import HomeScreen from './src/screens/medications/HomeScreen';
+import MedicationReviewScreen from './src/screens/medications/MedicationReviewScreen';
+import MedicationScheduleScreen from './src/screens/medications/MedicationScheduleScreen';
+import MedicationDetailsScreen from './src/screens/medications/MedicationDetailsScreen';
+import MedicationConfirmationScreen from './src/screens/medications/MedicationConfirmationScreen';
+import LinkRFIDScreen from './src/screens/medications/LinkRFIDScreen';
+
+// Screens - Capture
+import LabelCaptureScreen from './src/screens/capture/LabelCaptureScreen';
+import LiveScannerScreen from './src/screens/capture/LiveScannerScreen';
+
+// Screens - Schedule
+import ScheduleCalendarScreen from './src/screens/schedule/ScheduleCalendarScreen';
+import ScheduleSettingsScreen from './src/screens/schedule/ScheduleSettingsScreen';
+
+// Screens - Dashboard
+import DashboardScreen from './src/screens/dashboard/DashboardScreen';
+import AdherenceHistoryScreen from './src/screens/dashboard/AdherenceHistoryScreen';
+
+// Screens - Settings
+import SettingsScreen from './src/screens/settings/SettingsScreen';
+import EditProfileScreen from './src/screens/settings/EditProfileScreen';
+import ChangePasswordScreen from './src/screens/settings/ChangePasswordScreen';
+
+// Screens - Debug
+import AsyncStorageDebugScreen from './src/screens/debug/AsyncStorageDebugScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
-const Tab = createBottomTabNavigator();
+
+// Tab navigator param list - only tab-specific routes
+type TabParamList = {
+  HomeTab: undefined;
+  ScheduleCalendar: undefined;
+  DashboardTab: undefined;
+  SettingsTab: undefined;
+};
+const Tab = createBottomTabNavigator<TabParamList>();
 
 function MainTabs() {
   return (
@@ -85,8 +106,8 @@ function MainTabs() {
 }
 
 export default function App() {
+  const [isSessionLoading, setIsSessionLoading] = useState(true);
   const [showSplash, setShowSplash] = useState(true);
-  const [isLoading, setIsLoading] = useState(true);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   useEffect(() => {
@@ -95,25 +116,28 @@ export default function App() {
 
   const checkLoginStatus = async () => {
     try {
-      const loginStatus = await AsyncStorage.getItem('isLoggedIn');
-      setIsLoggedIn(loginStatus === 'true');
+      // Use Supabase session as single source of truth, not AsyncStorage flag
+      const { data: { session } } = await supabase.auth.getSession();
+      setIsLoggedIn(session !== null && session.user !== null);
     } catch (error) {
       console.error('Error checking login status:', error);
+      setIsLoggedIn(false);
     } finally {
-      setIsLoading(false);
+      setIsSessionLoading(false);
     }
   };
 
-  if (showSplash) {
-    return <SplashScreen onFinish={() => setShowSplash(false)} />;
-  }
+  // Handle splash screen finish
+  const handleSplashFinish = () => {
+    setShowSplash(false);
+  };
 
-  if (isLoading) {
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" color="#007AFF" />
-      </View>
-    );
+  // Show splash screen while either:
+  // 1. The animated splash is still showing, OR
+  // 2. We're still checking the session
+  // This prevents any flash of the wrong screen
+  if (showSplash || isSessionLoading) {
+    return <SplashScreen onFinish={handleSplashFinish} />;
   }
 
   return (
@@ -165,6 +189,13 @@ export default function App() {
                 </TouchableOpacity>
               ),
             })}
+          />
+          <Stack.Screen
+            name="LiveScanner"
+            component={LiveScannerScreen}
+            options={{
+              headerShown: false, // Full screen camera experience
+            }}
           />
           <Stack.Screen
             name="MedicationReview"

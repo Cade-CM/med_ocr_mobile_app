@@ -13,9 +13,12 @@ module.exports = function(api) {
             '@services': './src/services',
             '@screens': './src/screens',
             '@config': './src/config',
+            '@components': './src/components',
           },
         },
       ],
+      // Required for react-native-vision-camera frame processors
+      'react-native-worklets-core/plugin',
     ],
   };
 };

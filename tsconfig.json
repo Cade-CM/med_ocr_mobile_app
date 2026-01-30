@@ -7,7 +7,9 @@
       "@types": ["./src/types"],
       "@services/*": ["./src/services/*"],
       "@screens/*": ["./src/screens/*"],
-      "@config/*": ["./src/config/*"]
+      "@config/*": ["./src/config/*"],
+      "@components": ["./src/components"],
+      "@components/*": ["./src/components/*"]
     }
   }
 }

@@ -10,7 +10,7 @@ export class SchedulingService {
    * Generate reminder times for a medication based on frequency and user preferences
    */
   static generateReminderSchedule(
-    medication: Medication,
+    medication: Pick<Medication, 'frequency'>,
     preferences: UserPreferences,
     timesPerDay: number,
   ): Date[] {

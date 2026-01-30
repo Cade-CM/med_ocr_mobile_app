@@ -1,241 +1,99 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {Medication, AdherenceRecord, UserPreferences, PatientStats} from '@types';
-import { BACKEND_API_URL } from '@config/api';
 import * as BackendService from './BackendService';
 
 /**
- * Storage Service - Handles local data persistence
- * Backend API calls are delegated to BackendService for consistency
+ * Storage Service - Handles local data persistence with AsyncStorage
+ * Backend sync is handled via BackendService (Supabase)
+ * 
+ * ============================================================================
+ * ⚠️ DEPRECATED IDENTITY SYSTEM WARNING
+ * ============================================================================
+ * 
+ * The legacy identity methods (registerUser, loginUser, getUserIdFromEmail, etc.)
+ * that used @current_user_id and @user_lookup are DEPRECATED and will throw errors.
+ * 
+ * WHY: These methods created a parallel identity system separate from Supabase Auth,
+ * causing "identity drift" where the local USR_xxx ID diverged from the Supabase
+ * auth.uid(). This broke RLS policies and caused data visibility issues.
+ * 
+ * USE INSTEAD:
+ * - For user identity: AuthService.getCurrentUserKey() 
+ * - For login/signup: BackendService.loginUser() / signupUser()
+ * - For profile updates: BackendService.updateUserProfile()
+ * 
+ * See SECURITY_INVARIANTS.md for the complete security model.
+ * ============================================================================
  */
 export class StorageService {
-      /**
-       * Register or fetch user from backend
-       * @deprecated Use BackendService.signupUser directly
-       */
-      static async signupUser(email: string, displayName: string, userKey: string): Promise<any> {
-        return BackendService.signupUser({ email, display_name: displayName, user_key: userKey });
-      }
-
-      /**
-       * Save user settings to backend
-       */
-      static async saveUserSettings(userKey: string, settings: any): Promise<void> {
-        try {
-          const response = await fetch(`${BACKEND_API_URL}/api/user_settings`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_key: userKey, ...settings }),
-          });
-          if (!response.ok) {
-            const errorText = await response.text();
-            console.error('Save user settings failed:', response.status, errorText);
-            throw new Error(`Save user settings failed: ${response.status} ${errorText}`);
-          }
-        } catch (error) {
-          console.error('Error saving user settings:', error);
-          throw error;
-        }
-      }
-
-      /**
-       * Get user settings from backend
-       */
-      static async getUserSettings(userKey: string): Promise<any> {
-        try {
-          const response = await fetch(`${BACKEND_API_URL}/api/user_settings?user_key=${userKey}`);
-          if (!response.ok) {
-            const errorText = await response.text();
-            console.error('Get user settings failed:', response.status, errorText);
-            throw new Error(`Get user settings failed: ${response.status} ${errorText}`);
-          }
-          return await response.json();
-        } catch (error) {
-          console.error('Error getting user settings:', error);
-          throw error;
-        }
-      }
-
-      /**
-       * Save medication to backend (FastAPI contract)
-       * @deprecated Use BackendService.createMedication directly
-       */
-      static async saveMedicationToBackend(medication: any, userKey: string): Promise<any> {
-        return BackendService.createMedication({ user_key: userKey, ...medication });
-      }
-
-      /**
-       * Get all medications for user from backend
-       * @deprecated Use BackendService.fetchMedications directly
-       */
-      static async getMedicationsFromBackend(userKey: string): Promise<any[]> {
-        return BackendService.fetchMedications(userKey);
-      }
-
-      /**
-       * Log a medication event (adherence) to backend
-       * @deprecated Use BackendService.logMedEvent directly
-       */
-      static async logMedEvent(event: any, userKey: string): Promise<any> {
-        return BackendService.logMedEvent({ user_key: userKey, ...event });
-      }
-
-    /**
-     * Save an event (sync to backend, keep last 7 days locally)
-     */
-    static async saveEvent(event: any): Promise<void> {
-      try {
-        // Sync to backend
-        await BackendService.logMedEvent(event);
-        // Local backup
-        const events = await this.getEvents();
-        const index = events.findIndex(e => e.id === event.id);
-        if (index >= 0) {
-          events[index] = event;
-        } else {
-          events.push(event);
-        }
-        // Keep only last 7 days locally
-        const now = new Date();
-        const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        const safeEvents = Array.isArray(events) ? events : [];
-        const filtered = safeEvents.filter(e => new Date(e.startTime) >= sevenDaysAgo);
-        await AsyncStorage.setItem('@events', JSON.stringify(filtered));
-      } catch (error) {
-        console.error('Error saving event:', error);
-        throw error;
-      }
-    }
-
-    /**
-     * Get all events (last 7 days locally)
-     */
-    static async getEvents(): Promise<any[]> {
-      try {
-        const data = await AsyncStorage.getItem('@events');
-        if (!data) return [];
-        const events = JSON.parse(data);
-        const now = new Date();
-        const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        const safeEvents = Array.isArray(events) ? events : [];
-        return safeEvents.filter((e: any) => new Date(e.startTime) >= sevenDaysAgo);
-      } catch (error) {
-        console.error('Error getting events:', error);
-        return [];
-      }
-    }
-
-    /**
-     * Delete an event (sync to backend, update local)
-     */
-    static async deleteEvent(eventId: string): Promise<void> {
-      try {
-        // Sync to backend - Note: Backend may not have delete endpoint, handle gracefully
-        try {
-          await fetch(`${BACKEND_API_URL}/api/events/${eventId}`, {
-            method: 'DELETE',
-          });
-        } catch (e) {
-          console.warn('Backend delete event failed (may not be implemented):', e);
-        }
-        // Local update
-        const events = await this.getEvents();
-        const safeEvents = Array.isArray(events) ? events : [];
-        const filtered = safeEvents.filter(e => e.id !== eventId);
-        await AsyncStorage.setItem('@events', JSON.stringify(filtered));
-      } catch (error) {
-        console.error('Error deleting event:', error);
-        throw error;
-      }
-    }
   private static KEYS = {
     MEDICATIONS: '@medications',
     ADHERENCE_RECORDS: '@adherence_records',
     USER_PREFERENCES: '@user_preferences',
     PATIENT_NAMES: '@patient_names',
     PROFILE_DATA: '@profile_data',
+    // ⚠️ DEPRECATED - These keys are part of the legacy identity system
+    // They should no longer be read or written. See header comment.
+    /** @deprecated Use Supabase Auth via AuthService instead */
     CURRENT_USER: '@current_user_id',
-    USER_LOOKUP: '@user_lookup', // Maps user_id to email for login only
-    LOCAL_USER_PROFILE: '@localUserProfile', // Local profile storage
+    /** @deprecated Use Supabase Auth via AuthService instead */
+    USER_LOOKUP: '@user_lookup',
+    LOCAL_USER_PROFILE: '@localUserProfile',
   };
 
   /**
-   * Generate a unique, de-identified user ID
+   * @deprecated Legacy identity system removed. Use Supabase Auth via AuthService.
+   * @throws Error Always throws - this method should not be used.
    */
   static generateUserId(): string {
-    return `USR_${Date.now()}_${Math.random().toString(36).substr(2, 12)}`;
+    throw new Error(
+      'Legacy identity system removed. Use Supabase Auth via AuthService/BackendService. ' +
+      'User identity is derived from supabase.auth.getSession().'
+    );
   }
 
   /**
-   * Get the current logged-in user's de-identified ID
+   * @deprecated Legacy identity system removed. Use AuthService.getCurrentUserKey() instead.
+   * @throws Error Always throws - this method should not be used.
    */
   private static async getCurrentUserId(): Promise<string | null> {
-    try {
-      return await AsyncStorage.getItem(this.KEYS.CURRENT_USER);
-    } catch (error) {
-      console.error('Error getting current user ID:', error);
-      return null;
-    }
+    throw new Error(
+      'Legacy identity system removed. Use AuthService.getCurrentUserKey() instead. ' +
+      'This prevents identity drift between local storage and Supabase Auth.'
+    );
   }
 
   /**
-   * Set the current user ID (de-identified)
+   * @deprecated Legacy identity system removed. User identity managed by Supabase Auth.
+   * @throws Error Always throws - this method should not be used.
    */
   private static async setCurrentUserId(userId: string): Promise<void> {
-    try {
-      await AsyncStorage.setItem(this.KEYS.CURRENT_USER, userId);
-    } catch (error) {
-      console.error('Error setting current user ID:', error);
-    }
+    throw new Error(
+      'Legacy identity system removed. User identity is managed by Supabase Auth session. ' +
+      'Do not manually set user IDs.'
+    );
   }
 
   /**
-   * Get user ID from email (for login purposes only)
+   * @deprecated Legacy identity system removed. Use BackendService.loginUser() instead.
+   * @throws Error Always throws - this method should not be used.
    */
   static async getUserIdFromEmail(email: string): Promise<string | null> {
-    try {
-      const lookupData = await AsyncStorage.getItem(this.KEYS.USER_LOOKUP);
-      if (!lookupData) return null;
-      
-      const lookup: { [email: string]: string } = JSON.parse(lookupData);
-      return lookup[email.toLowerCase()] || null;
-    } catch (error) {
-      console.error('Error getting user ID from email:', error);
-      return null;
-    }
+    throw new Error(
+      'Legacy identity system removed. Use BackendService.loginUser() for authentication. ' +
+      'The @user_lookup AsyncStorage key is no longer used.'
+    );
   }
 
   /**
-   * Register a new user with de-identified ID
+   * @deprecated Legacy identity system removed. Use BackendService.signupUser() instead.
+   * @throws Error Always throws - this method should not be used.
    */
   static async registerUser(email: string, firstName: string, lastName: string): Promise<string> {
-    try {
-      const userId = this.generateUserId();
-      const normalizedEmail = email.toLowerCase();
-      
-      // Store email-to-userId mapping (for login only)
-      const lookupData = await AsyncStorage.getItem(this.KEYS.USER_LOOKUP);
-      const lookup: { [email: string]: string } = lookupData ? JSON.parse(lookupData) : {};
-      lookup[normalizedEmail] = userId;
-      await AsyncStorage.setItem(this.KEYS.USER_LOOKUP, JSON.stringify(lookup));
-      
-      // Store profile data by user_id (de-identified)
-      const profileKey = `${this.KEYS.PROFILE_DATA}_${userId}`;
-      await AsyncStorage.setItem(profileKey, JSON.stringify({
-        firstName,
-        lastName,
-        email: normalizedEmail,
-        createdAt: new Date().toISOString(),
-      }));
-      
-      // Set as current user immediately after registration
-      await this.setCurrentUserId(userId);
-      
-      console.log(`✅ Registered new user with de-identified ID: ${userId}`);
-      return userId;
-    } catch (error) {
-      console.error('Error registering user:', error);
-      throw error;
-    }
+    throw new Error(
+      'Legacy identity system removed. Use BackendService.signupUser() for registration. ' +
+      'This uses Supabase Auth with proper bcrypt password hashing and RLS-compatible user IDs.'
+    );
   }
 
   /**
@@ -291,32 +149,25 @@ export class StorageService {
   }
 
   /**
-   * Login user and set as current (using email for lookup only)
+   * @deprecated Legacy identity system removed. Use BackendService.loginUser() instead.
+   * @throws Error Always throws - this method should not be used.
    */
   static async loginUser(email: string): Promise<boolean> {
-    try {
-      const userId = await this.getUserIdFromEmail(email);
-      if (!userId) return false;
-      
-      await this.setCurrentUserId(userId);
-      console.log(`✅ User logged in with de-identified ID: ${userId}`);
-      return true;
-    } catch (error) {
-      console.error('Error logging in user:', error);
-      return false;
-    }
+    throw new Error(
+      'Legacy identity system removed. Use BackendService.loginUser(email, password) for authentication. ' +
+      'This properly authenticates via Supabase Auth and establishes a secure session.'
+    );
   }
 
   /**
-   * Logout current user
+   * @deprecated Legacy identity system removed. Use AuthService.signOut() instead.
+   * @throws Error Always throws - this method should not be used.
    */
   static async logoutUser(): Promise<void> {
-    try {
-      await AsyncStorage.removeItem(this.KEYS.CURRENT_USER);
-      console.log('✅ User logged out');
-    } catch (error) {
-      console.error('Error logging out user:', error);
-    }
+    throw new Error(
+      'Legacy identity system removed. Use AuthService.signOut() for logout. ' +
+      'This properly clears the Supabase session and triggers auth state cleanup.'
+    );
   }
 
   /**
@@ -516,50 +367,60 @@ export class StorageService {
 
   /**
    * Calculate patient statistics
+   * Optimized: Single-pass calculation for streaks and counts
    */
   static async getPatientStats(): Promise<PatientStats> {
     const medications = await this.getMedications();
     const records = await this.getAdherenceRecords();
     
-    const totalRecords = Array.isArray(records) ? records.length : 0;
-    const safeRecords = Array.isArray(records) ? records : [];
-    const takenOnTime = safeRecords.filter(
-      r => r.status === 'taken' && (r.lateness || 0) <= 15,
-    ).length;
-    const missed = Array.isArray(safeRecords) ? safeRecords.filter(r => r.status === 'missed').length : 0;
-    
-    const adherencePercentage =
-      totalRecords > 0 ? (takenOnTime / totalRecords) * 100 : 0;
+    const totalRecords = records.length;
+    if (totalRecords === 0) {
+      return {
+        totalMedications: medications.length,
+        adherencePercentage: 0,
+        currentStreak: 0,
+        longestStreak: 0,
+        missedDoses: 0,
+        onTimeDoses: 0,
+      };
+    }
 
-    // Calculate current streak
-    let currentStreak = 0;
+    // Sort once, then single-pass for all stats
     const sortedRecords = records
       .sort((a, b) => b.scheduledTime.getTime() - a.scheduledTime.getTime());
     
-    for (const record of sortedRecords) {
-      if (record.status === 'taken') {
-        currentStreak++;
-      } else if (record.status === 'missed') {
-        break;
-      }
-    }
-
-    // Calculate longest streak
+    let takenOnTime = 0;
+    let missed = 0;
+    let currentStreak = 0;
     let longestStreak = 0;
     let tempStreak = 0;
-    
+    let foundFirstMissed = false;
+
     for (const record of sortedRecords) {
+      // Count stats
+      if (record.status === 'taken' && (record.lateness || 0) <= 15) {
+        takenOnTime++;
+      }
+      if (record.status === 'missed') {
+        missed++;
+      }
+      
+      // Calculate streaks
       if (record.status === 'taken') {
         tempStreak++;
         longestStreak = Math.max(longestStreak, tempStreak);
+        if (!foundFirstMissed) {
+          currentStreak++;
+        }
       } else if (record.status === 'missed') {
         tempStreak = 0;
+        foundFirstMissed = true;
       }
     }
 
     return {
-      totalMedications: Array.isArray(medications) ? medications.length : 0,
-      adherencePercentage,
+      totalMedications: medications.length,
+      adherencePercentage: (takenOnTime / totalRecords) * 100,
       currentStreak,
       longestStreak,
       missedDoses: missed,

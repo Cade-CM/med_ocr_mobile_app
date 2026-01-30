@@ -4,15 +4,26 @@ import React, {
   useEffect,
   useState,
   useCallback,
+  useMemo,
+  useRef,
   ReactNode,
 } from "react";
-import { BACKEND_API_URL } from '@config/api';
+import { supabase } from '@config/supabase';
+import { 
+  getCurrentUserKey, 
+  onAuthStateChange,
+  initializeAuthListener 
+} from '@services/AuthService';
+import { subscribeMedicationChanges, unsubscribeAll } from '@services/RealtimeService';
 
-// Adjust this to match your types
-export type Medication = {
+/**
+ * Backend medication format - matches Supabase/API response schema.
+ * Different from the frontend Medication type in @types which uses camelCase.
+ */
+export type BackendMedication = {
   id: number;
   user_key: string;
-  medication_key: string;
+  medication_key: string | null;
   drug_name?: string | null;
   strength?: string | null;
   route?: string | null;
@@ -26,55 +37,91 @@ export type Medication = {
 };
 
 type AppDataContextValue = {
-  medications: Medication[];
-  setMedications: (meds: Medication[]) => void;
+  medications: BackendMedication[];
+  setMedications: (meds: BackendMedication[]) => void;
   refreshMedications: () => Promise<void>;
+  userKey: string | null;
 };
 
 const AppDataContext = createContext<AppDataContextValue | undefined>(undefined);
 
-// WebSocket URL derived from backend URL
-const WS_URL = BACKEND_API_URL.replace(/^http/, 'ws') + '/ws/updates';
-
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
-async function getCurrentUserKey(): Promise<string> {
-  const key = await AsyncStorage.getItem('user_key');
-  if (!key) throw new Error('No user_key found');
-  return key;
-}
-
 export const AppDataProvider = ({ children }: { children: ReactNode }) => {
-  const [medications, setMedications] = useState<Medication[]>([]);
+  const [medications, setMedications] = useState<BackendMedication[]>([]);
   const [userKey, setUserKey] = useState<string | null>(null);
+  const unsubscribeRealtimeRef = useRef<(() => void) | null>(null);
+  const authListenerInitializedRef = useRef(false);
 
-  // On startup, load userKey
+  // Initialize auth listener once and derive userKey from session
   useEffect(() => {
-    let isMounted = true;
+    if (authListenerInitializedRef.current) return;
+    authListenerInitializedRef.current = true;
+
+    // Get initial userKey from session first
     getCurrentUserKey()
       .then(key => {
-        if (isMounted) setUserKey(key);
+        if (key) {
+          setUserKey(key);
+        }
       })
       .catch(err => {
-        console.warn("Failed to load userKey", err);
+        console.warn("No authenticated user on startup", err);
       });
+
+    // Initialize the global auth listener
+    const unsubscribeAuthListener = initializeAuthListener();
+
+    // Subscribe to auth state changes for this context
+    const unsubscribeAuthState = onAuthStateChange(async (event, session) => {
+      console.log('📱 AppDataContext: Auth state changed:', event);
+
+      if (event === 'SIGNED_OUT') {
+        // Clear all state on logout
+        setUserKey(null);
+        setMedications([]);
+        
+        // Unsubscribe from realtime
+        if (unsubscribeRealtimeRef.current) {
+          unsubscribeRealtimeRef.current();
+          unsubscribeRealtimeRef.current = null;
+        }
+      } else if (event === 'SIGNED_IN' && session?.user?.id) {
+        // Clear previous user state before setting new userKey
+        setMedications([]);
+        if (unsubscribeRealtimeRef.current) {
+          unsubscribeRealtimeRef.current();
+          unsubscribeRealtimeRef.current = null;
+        }
+        // Set new user key from session
+        setUserKey(session.user.id);
+      }
+    });
+
     return () => {
-      isMounted = false;
+      unsubscribeAuthListener();
+      unsubscribeAuthState();
     };
   }, []);
+
+  // NOTE: Initial userKey fetch is now handled in the auth listener useEffect above
+  // This prevents race conditions between initial fetch and auth state changes
 
   const refreshMedications = useCallback(async () => {
     if (!userKey) return;
     try {
-      const res = await fetch(
-        `${BACKEND_API_URL}/api/medications?user_key=${encodeURIComponent(userKey)}`
-      );
-      if (!res.ok) {
-        console.warn("Failed to fetch medications", res.status);
+      // Fetch medications directly from Supabase
+      // RLS ensures we only get our own medications
+      const { data, error } = await supabase
+        .from('medications')
+        .select('*')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.warn("Failed to fetch medications", error);
         return;
       }
-      const data: Medication[] = await res.json();
-      setMedications(data);
+      
+      setMedications(data || []);
     } catch (err) {
       console.warn("Error fetching medications", err);
     }
@@ -87,51 +134,56 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [userKey, refreshMedications]);
 
-  // WebSocket live sync
+  // Supabase Realtime subscription for live updates
+  // Resubscribes when userKey changes (e.g., after login)
   useEffect(() => {
     if (!userKey) return;
 
-    const ws = new WebSocket(WS_URL);
+    let isMounted = true;
 
-    ws.onopen = () => {
-      console.log("WS connected");
-      // optional hello / ping
-      ws.send("hello");
-    };
+    const setupRealtime = async () => {
+      // Unsubscribe from any existing subscription first
+      if (unsubscribeRealtimeRef.current) {
+        unsubscribeRealtimeRef.current();
+        unsubscribeRealtimeRef.current = null;
+      }
 
-    ws.onmessage = event => {
       try {
-        const msg = JSON.parse(event.data);
-        // Our backend trigger sends { table, operation, id, user_key }
-        if (msg.table === "medications" && msg.user_key === userKey) {
-          console.log("Medication change notification", msg);
-          // For now, simplest approach: refetch the medications list
-          refreshMedications();
+        const unsubscribe = await subscribeMedicationChanges(userKey, (payload) => {
+          console.log("📡 Medication change:", payload.eventType);
+          if (isMounted) {
+            refreshMedications();
+          }
+        });
+        
+        if (isMounted) {
+          unsubscribeRealtimeRef.current = unsubscribe;
+        } else {
+          unsubscribe();
         }
-        // Later, if you add triggers for other tables, handle them here
       } catch (err) {
-        console.warn("Bad WS message", err, event.data);
+        console.warn("Error setting up realtime subscription", err);
       }
     };
 
-    ws.onerror = err => {
-      console.warn("WS error", err);
-    };
-
-    ws.onclose = () => {
-      console.log("WS closed");
-    };
+    setupRealtime();
 
     return () => {
-      ws.close();
+      isMounted = false;
+      if (unsubscribeRealtimeRef.current) {
+        unsubscribeRealtimeRef.current();
+        unsubscribeRealtimeRef.current = null;
+      }
     };
   }, [userKey, refreshMedications]);
 
-  const value: AppDataContextValue = {
+  // Memoize context value to prevent unnecessary re-renders
+  const value = useMemo<AppDataContextValue>(() => ({
     medications,
     setMedications,
     refreshMedications,
-  };
+    userKey,
+  }), [medications, refreshMedications, userKey]);
 
   return (
     <AppDataContext.Provider value={value}>

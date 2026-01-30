@@ -7,8 +7,8 @@
  */
 export interface Medication {
   id: string;
+  medication_key?: string; // Backend-generated unique key
   user_key: string;
-  password: string; // Adding password field to match backend contract
   patientName?: string;
   drugName: string;
   strength?: string;
@@ -23,6 +23,7 @@ export interface Medication {
   refillsBeforeDate?: string;
   pharmacy?: string;
   pharmacyPhone?: string;
+  prescriber?: string; // Prescribing doctor
   reminderTimes: Date[];
   startDate: Date;
   endDate?: Date;
@@ -30,6 +31,9 @@ export interface Medication {
   rawOcrText?: string;
   rfidTagId?: string; // RFID tag linked to this medication
   requiresRFIDConfirmation?: boolean; // Whether RFID scan is required
+  isActive?: boolean; // Whether medication is currently active
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
 /**
@@ -45,11 +49,14 @@ export interface ParsedMedicationData {
   instructions?: string;
   additionalInstructions?: string;
   rxNumber?: string;
-  quantity?: string;
-  refills?: string;
+  quantity?: string | number;
+  refills?: string | number;
   refillsBeforeDate?: string;
+  fillDate?: string;
+  expirationDate?: string;
   pharmacy?: string;
   pharmacyPhone?: string;
+  prescriber?: string;
   confidence: number;
 }
 
@@ -128,6 +135,7 @@ export type RootStackParamList = {
   DashboardTab: undefined;
   SettingsTab: undefined;
   LabelCapture: undefined;
+  LiveScanner: undefined;
   MedicationReview: {
     imageUri: string;
     rawOcrText?: string;
@@ -154,4 +162,7 @@ export type RootStackParamList = {
   AdherenceHistory: {
     medicationId: string;
   };
+  EditProfileScreen: undefined;
+  ChangePasswordScreen: undefined;
+  AsyncStorageDebugScreen: undefined;
 };
